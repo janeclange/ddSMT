@@ -159,7 +159,7 @@ def _filter_scopes (filter_fun, bfs, root = None):
         to_visit.extend(cur.scopes)
     return scopes
 
-def _filter_cmds (filter_fun, bfs):
+def _filter_cmds (filter_fun, scopes, bfs):
     """ _filter_cmds(filter_fun, bfs)
 
        Collect a list of command nodes that fit a condition defined by given filtering 
@@ -175,7 +175,6 @@ def _filter_cmds (filter_fun, bfs):
     global g_smtformula
     assert (g_smtformula)
     cmds = []
-    scopes = _filter_scopes (lambda x: x.is_regular(), bfs)
     to_visit = [c for cmd_list in [s.cmds for s in scopes] for c in cmd_list]
     to_visit.extend(g_smtformula.scopes.declfun_cmds.values())
     while to_visit:
@@ -382,10 +381,44 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
     _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
+def coarse_hdd_wrapper (): 
+    coarse_hdd (scopes, cmds, terms)
+
+def coarse_hdd (scopes, cmds, terms):
+    global g_tmpfile, g_args, g_smtformula
+
+    nsubst_total = 0
+    nscopes_subst = 0
+    ncmds_subst = 0
+    nterms_subst = 0
+    
+    scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
+    cmds = _filter_cmds (lambda x: x.is_assert(), scopes, g_args.bfs)  
+    terms = [t for term_list in [c.children if c.is_getvalue() else [c.children[-1]] \
+                for c in cmds] for t in term_list]
+    to_subst = []
+
+    while to_subst:
+        nscopes_subst += _substitute (lambda x: None, g_smtformula.subst_scopes, scopes, g_args.randomized)
+        ncmds_subst += _substitute (lambda x: None, g_smtformula.subst_cmds, cmds, g_args.randomized)
+        nsubst_total += nscopes_subst + ncmds_subst
+        #nterms_subst += _substitute (lambda x: None, g_smtformula.subst_terms, terms, g_args.randomized)
+        to_subst_children = []
+        for node in to_subst:
+            to_subst_children.extend(node.get_subst().children)
+        to_subst = to_subst_children
+    
+    
+   
+#def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False):
+
+
 
 def ddsmt_main ():
     global g_tmpfile, g_args, g_smtformula
-
+    
+    #level by level -- scopes, commands, terms 
+    #iterate this -- make a single pass through the tree a different function 
     nrounds = 0
     nsubst_total  = 0
     nsubst_round  = 1
@@ -791,7 +824,8 @@ if __name__ == "__main__":
         if g_args.cmpoutput:
             _log (1, "golden err: {}".format(
                         str(g_golden_err.decode()).strip()))
-        ddsmt_main ()
+
+        coarse_hdd-wrapper ()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
