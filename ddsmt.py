@@ -273,7 +273,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     
     while gran > 0:
         start_time = time.time()
-        if randomized:
+        if randomized and gran > 1:
             subsets = [random.sample(superset, gran) for s in range(0, len(superset), gran)]
         else:
             subsets = [superset[s:s+gran] for s in range (0, len(superset), gran)]
@@ -318,7 +318,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                             g_smtformula.delete_fun(name)
                 g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
         superset = [s for subset in cpy_subsets for s in subset]
-        gran = gran // 2
+        gran = int(gran * 0.9)
     return nsubst_total
 
 def _substitute_scopes_hdd (scopes, randomized):
@@ -477,165 +477,196 @@ def coarse_hdd (scopes, cmds, terms):
     nscopes_subst = 0
     ncmds_subst = 0
     nterms_subst = 0
+    nsubst_round = 1
     
     level = 0
+    while nsubst_round:
+        nsubst_round = 0
+        while scopes or cmds or terms:
+            _log(1, "at level {}:".format(level))
+            temp_scopes = []
+            temp_cmds = []
+            temp_terms = []
+            cmds = []
 
-    while scopes or cmds or terms:
-        _log(1, "at level {}:".format(level))
-        temp_scopes = []
-        temp_cmds = []
-        temp_terms = []
+            if scopes:
+                nscopes_subst += _substitute_scopes_hdd (scopes, g_args.randomized)
+                for node in scopes:
+                    if node.get_subst(): 
+                        temp_scopes.extend(node.get_subst().scopes)
+                        cmds.extend(node.get_subst().cmds)
+                        #temp_cmds.extend(node.get_subst().declfun_cmds)
+                scopes = temp_scopes
+                
 
-        if scopes:
-            nscopes_subst += _substitute_scopes_hdd (scopes, g_args.randomized)
-            for node in scopes:
-                if node.get_subst(): 
-                    temp_scopes.extend(node.get_subst().scopes)
-                    temp_cmds.extend(node.get_subst().cmds)
-                    #temp_cmds.extend(node.get_subst().declfun_cmds)
-            scopes = temp_scopes
-
-        if cmds:
-            ncmds_subst += _substitute_cmds_hdd (cmds, g_args.randomized)
-            for node in cmds: 
-                if node.get_subst() and node.get_subst().is_getvalue():
-                    temp_terms.extend(node.get_subst().children)
-                elif node.get_subst() and node.get_subst().children:
-                    if node.get_subst():
+            if cmds:
+                ncmds_subst += _substitute_cmds_hdd (cmds, g_args.randomized)
+                for node in cmds: 
+                    if node.get_subst() and node.get_subst().is_getvalue():
+                        temp_terms.extend(node.get_subst().children)
+                    elif node.get_subst() and node.get_subst().children:
                         for c in node.get_subst().children:
                             if isinstance(c, SMTNode):
                                 temp_terms.append(c)
-            cmds = temp_cmds
-
-        nterms_subst += _substitute_terms_hdd (
-            lambda x: sf.boolConstNode("false"),
-            lambda x: not x.is_const() \
-                and x.sort and x.sort.is_bool_sort(),
-            terms, g_args.randomized, 
-        "  substitute Boolean terms with 'false'")
-
-        nterms_subst += _substitute_terms_hdd (
-            lambda x: sf.boolConstNode("true"),
-            lambda x: not x.is_const() \
-                and x.sort and x.sort.is_bool_sort(),
-            terms, g_args.randomized, 
-        "  substitute Boolean terms with 'true'")
-
-        nterms_subst += _substitute_terms_hdd (
-     	   lambda x: x.children[1].get_subst() \
-     	       if x.children[0].get_subst().is_false_bvconst()\
-     	       else x.children[0].get_subst(),
-     	   lambda x: x.is_bvor() and \
-     	       (x.children[0].get_subst().is_false_bvconst() \
-     		or
-     		x.children[1].get_subst().is_false_bvconst()),
-     	   terms, g_args.randomized, 
-     	   "  substitute (bvor term false) with term")
-
-        nterms_subst += _substitute_terms_hdd (
-     	   lambda x: x.children[1].get_subst() \
-     	       if x.children[0].get_subst().is_true_bvconst() \
-     	       else x.children[0].get_subst(),
-     	   lambda x: x.is_and() and \
-     	       (x.children[0].get_subst().is_true_bvconst() \
-     		or
-     		x.children[1].get_subst().is_true_bvconst()),
-     	   terms, g_args.randomized, 
-     	   "  substitute (bvand term true) with term")
-
-        if sf.is_bv_logic():
-            nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.bvZeroConstNode(x.sort),
-                    lambda x: not x.is_const() \
-                              and x.sort and x.sort.is_bv_sort(),
-                    terms, g_args.randomized, 
-                    "  substitute BV terms with '0'")
 
             nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
-                    lambda x: not x.is_const()                   \
-                              and x.sort and x.sort.is_bv_sort() \
-                              and not sf.is_substvar(x),
-                    terms, g_args.randomized,
-                    "  substitute BV terms with fresh variables",
-                    True)
-
-        if sf.is_int_logic() or sf.is_real_logic():
-            nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.zeroConstNNode(),
-                    lambda x: not x.is_const() \
-                              and x.sort and x.sort.is_int_sort(),
-                    terms, g_args.randomized, 
-                    "  substitute Int terms with '0'")
-            nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
-                    lambda x: not x.is_const()                    \
-                              and x.sort and x.sort.is_int_sort() \
-                              and not sf.is_substvar(x),
-                    terms, g_args.randomized,
-                    "  substitute Int terms with fresh variables",
-                    True)
-
-        if sf.is_real_logic():
-            nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.zeroConstDNode(),
-                    lambda x: not x.is_const() \
-                              and x.sort and x.sort.is_real_sort(),
-                    terms, g_args.randomized, 
-                    "  substitute Real terms with '0'")
-            nterms_subst += _substitute_terms_hdd (
-                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
-                    lambda x: not x.is_const()                     \
-                              and x.sort and x.sort.is_real_sort() \
-                              and not sf.is_substvar(x),
-                    terms, g_args.randomized,
-                    "  substitute Real terms with fresh variables",
-                    True)
-
-        nterms_subst += _substitute_terms_hdd (
-                lambda x: x.children[-1].get_subst(),
-                lambda x: x.is_let(),
+                lambda x: sf.boolConstNode("false"),
+                lambda x: not x.is_const() \
+                    and x.sort and x.sort.is_bool_sort(),
                 terms, g_args.randomized, 
-                "  substitute LETs with child term")
+            "  substitute Boolean terms with 'false'")
 
-        nterms_subst += _substitute_terms_hdd (
-                lambda x: None,
-                lambda x: x.is_varb() and x.children[0].is_subst(),
-                terms, g_args.randomized,
-                "  eliminate redundant variable bindings")
-
-        if sf.is_arr_logic():
             nterms_subst += _substitute_terms_hdd (
-                    lambda x: x.children[0],  # array
-                    lambda x: x.is_write(),
+                lambda x: sf.boolConstNode("true"),
+                lambda x: not x.is_const() \
+                    and x.sort and x.sort.is_bool_sort(),
+                terms, g_args.randomized, 
+            "  substitute Boolean terms with 'true'")
+
+            nterms_subst += _substitute_terms_hdd (
+               lambda x: x.children[1].get_subst() \
+                   if x.children[0].get_subst().is_false_const()\
+                   else x.children[0].get_subst(),
+               lambda x: x.is_or() and \
+                   (x.children[0].get_subst().is_false_const() \
+                or
+                x.children[1].get_subst().is_false_const()),
+               terms, g_args.randomized, 
+               "  substitute (or term false) with term")
+
+            nterms_subst += _substitute_terms_hdd (
+               lambda x: x.children[1].get_subst() \
+                   if x.children[0].get_subst().is_true_const()\
+                   else x.children[0].get_subst(),
+               lambda x: x.is_and() and \
+                   (x.children[0].get_subst().is_true_const() \
+                or
+                x.children[1].get_subst().is_true_const()),
+               terms, g_args.randomized, 
+               "  substitute (and term true) with term")
+
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: x.children[-1].get_subst(),
+                    lambda x: x.children,
+                    terms, g_args.randomized, 
+                    "  substitute internal nodes with child term")
+
+            if sf.is_bv_logic():
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.bvZeroConstNode(x.sort),
+                        lambda x: not x.is_const() \
+                                  and x.sort and x.sort.is_bv_sort(),
+                        terms, g_args.randomized, 
+                        "  substitute BV terms with '0'")
+
+                nterms_subst += _substitute_terms_hdd (
+         	       lambda x: x.children[1].get_subst() \
+         	           if x.children[0].get_subst().is_false_bvconst()\
+         	           else x.children[0].get_subst(),
+         	       lambda x: x.is_bvor() and \
+         	           (x.children[0].get_subst().is_false_bvconst() \
+         	    	or
+         	    	x.children[1].get_subst().is_false_bvconst()),
+         	       terms, g_args.randomized, 
+         	       "  substitute (bvor term false) with term")
+
+                nterms_subst += _substitute_terms_hdd (
+         	       lambda x: x.children[1].get_subst() \
+         	           if x.children[0].get_subst().is_true_bvconst() \
+         	           else x.children[0].get_subst(),
+         	       lambda x: x.is_and() and \
+         	           (x.children[0].get_subst().is_true_bvconst() \
+         	    	or
+         	    	x.children[1].get_subst().is_true_bvconst()),
+         	       terms, g_args.randomized, 
+         	       "  substitute (bvand term true) with term")
+
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                        lambda x: not x.is_const()                   \
+                                  and x.sort and x.sort.is_bv_sort() \
+                                  and not sf.is_substvar(x),
+                        terms, g_args.randomized,
+                        "  substitute BV terms with fresh variables",
+                        True)
+
+            if sf.is_int_logic() or sf.is_real_logic():
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.zeroConstNNode(),
+                        lambda x: not x.is_const() \
+                                  and x.sort and x.sort.is_int_sort(),
+                        terms, g_args.randomized, 
+                        "  substitute Int terms with '0'")
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                        lambda x: not x.is_const()                    \
+                                  and x.sort and x.sort.is_int_sort() \
+                                  and not sf.is_substvar(x),
+                        terms, g_args.randomized,
+                        "  substitute Int terms with fresh variables",
+                        True)
+
+            if sf.is_real_logic():
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.zeroConstDNode(),
+                        lambda x: not x.is_const() \
+                                  and x.sort and x.sort.is_real_sort(),
+                        terms, g_args.randomized, 
+                        "  substitute Real terms with '0'")
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                        lambda x: not x.is_const()                     \
+                                  and x.sort and x.sort.is_real_sort() \
+                                  and not sf.is_substvar(x),
+                        terms, g_args.randomized,
+                        "  substitute Real terms with fresh variables",
+                        True)
+
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: x.children[-1].get_subst(),
+                    lambda x: x.is_let(),
+                    terms, g_args.randomized, 
+                    "  substitute LETs with child term")
+
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: None,
+                    lambda x: x.is_varb() and x.children[0].is_subst(),
                     terms, g_args.randomized,
-                    "  substitute STOREs with array child")
+                    "  eliminate redundant variable bindings")
 
-        nterms_subst += _substitute_terms_hdd (
-                lambda x: x.children[1],  # left child
-                lambda x: x.is_ite(),
-                terms, g_args.randomized,
-                "  substitute ITE with left child")
-        nterms_subst += _substitute_terms_hdd (
-                lambda x: x.children[2],  # right child
-                lambda x: x.is_ite(),
-                terms, g_args.randomized,
-                "  substitute ITE with right child")
+            if sf.is_arr_logic():
+                nterms_subst += _substitute_terms_hdd (
+                        lambda x: x.children[0],  # array
+                        lambda x: x.is_write(),
+                        terms, g_args.randomized,
+                        "  substitute STOREs with array child")
 
-        nsubst_total += nscopes_subst + ncmds_subst + nterms_subst
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: x.children[1],  # left child
+                    lambda x: x.is_ite(),
+                    terms, g_args.randomized,
+                    "  substitute ITE with left child")
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: x.children[2],  # right child
+                    lambda x: x.is_ite(),
+                    terms, g_args.randomized,
+                    "  substitute ITE with right child")
+
+            nsubst_round += nscopes_subst + ncmds_subst + nterms_subst
 
 
-        
-        for node in terms:
-            if node.get_subst():
-                temp_terms.extend(node.get_subst().children)
-        
-        scopes = temp_scopes
-        cmds = temp_cmds
-        terms = temp_terms
             
-        level += 1
+            for node in terms:
+                if node.get_subst():
+                    temp_terms.extend(node.get_subst().children)
+            
+            scopes = temp_scopes
+            cmds = temp_cmds
+            terms = temp_terms
+                
+            level += 1
 
+        nsubst_total += nsubst_round
     return nsubst_total
     
     
