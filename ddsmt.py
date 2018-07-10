@@ -29,7 +29,7 @@ import time
 
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
-from parser.ddsmtparser import DDSMTParser, DDSMTParseException
+from parser.ddsmtparser import SMTNode, DDSMTParser, DDSMTParseException
 
 
 __version__ = "1.0"
@@ -66,7 +66,7 @@ class DDSMTCmd ():
         start = time.time()
         try:
             if is_golden:
-                self.out, self.err = self.process.communicate(timeout=60)
+                self.out, self.err = self.process.communicate(timeout=100)
             else:
                 self.out, self.err = self.process.communicate(timeout=self.timeout)
         except TimeoutExpired:
@@ -125,6 +125,12 @@ def _test ():
         return exitcode == g_golden_exit and err == g_golden_err
     return exitcode == g_golden_exit
 
+def _filter_scopes_hdd (filter_fun, scopes):
+    nodes = []
+    for s in scopes:
+        if filter_fun(s):
+            nodes.append(s)
+    return nodes
 
 def _filter_scopes (filter_fun, bfs, root = None):
     """_filter_scopes(filter_fun, bfs, root)
@@ -185,6 +191,26 @@ def _filter_cmds (filter_fun, scopes, bfs):
             cmds.append(cur)
     return cmds
 
+def _filter_terms_hdd (filter_fun, terms):
+    """_filter_terms(filter_fun, bfs, roots) 
+       
+       Collect a list of term nodes that fit a condition defined by given filtering 
+       function filter_fun. Nodes are added to the list in the order that they 
+       are visited in a depth-first search descending from a given list of roots.
+
+       If bfs is True, nodes are visited in a breadth-first search instead.
+
+       :filter_fun: Boolean function that returns True if a node should be added.
+       :roots: List of nodes from which to begin searching.
+       :bfs: Bool indicating whether to use breadth-first search.
+       :return: List of term nodes that fit the filtering condition.
+       """
+
+    nodes = []
+    for t in terms:
+        if filter_fun(t):
+            nodes.append(t)
+    return nodes
 def _filter_terms (filter_fun, bfs, roots):
     """_filter_terms(filter_fun, bfs, roots) 
        
@@ -295,6 +321,16 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
         gran = gran // 2
     return nsubst_total
 
+def _substitute_scopes_hdd (scopes, randomized):
+    
+    global g_smtformula
+    assert (g_smtformula)
+    _log (2)
+    _log (2, "substitute SCOPES:")
+    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_scopes, scopes, randomized)
+    
+    _log (2, "  >> {} scope(s) substituted in total".format(nsubst_total))
+    return nsubst_total
 
 def _substitute_scopes (bfs, randomized):
     """_substitute_scopes(bfs, randomized)
@@ -325,6 +361,18 @@ def _substitute_scopes (bfs, randomized):
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
+def _substitute_cmds_hdd (cmds, randomized):
+    global g_smtformula
+    assert (g_smtformula)
+    _log (2)
+    _log (2, "substitute COMMANDS:")
+    
+    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_cmds, cmds, g_args.randomized)
+    
+
+    _log (2, "  >> {} command(s) substituted in total".format(nsubst_total))
+    return nsubst_total
+
 def _substitute_cmds (bfs, randomized, filter_fun = None):
     """_substitute_cmds(filter_fun, bfs, randomized)
 
@@ -349,6 +397,34 @@ def _substitute_cmds (bfs, randomized, filter_fun = None):
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
+
+def _substitute_terms_hdd (subst_fun, filter_fun, terms, randomized, msg = None,
+                       with_vars = False):
+    """_substitute_terms(subst_fun, filter_fun, cmds, bfs, randomized, msg, with_vars)
+
+       Attempt to substitute term nodes as defined by given substitution function
+       subst_fun and filtering condition filter_fun. Terms descend from a given 
+       command list cmds and are collected in the order indicated by the bfs parameter.
+
+       :subst_fun:  Function used to determine node substitutions.
+       :filter_fun: Function used to select terms to substitute.
+       :cmds:       List of commands to substitute terms from.
+       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
+       :randomized: Bool indicating whether to randomize subset selection.
+       :msg:        String to write to the log.
+       :with_vars:  Bool indicating whether the substitution creates new variables. 
+       :return:     Total number of nodes substituted. 
+    """
+    _log (2)
+    _log (2, msg if msg else "substitute TERMS:")
+    ntests_prev = g_ntests
+    terms =_filter_terms_hdd(filter_fun, terms)
+    nsubst_total = _substitute (subst_fun, g_smtformula.subst_nodes, terms, \
+                    randomized, with_vars)
+
+    _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
+    _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
+    return nsubst_total
 
 def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
                        with_vars = False):
@@ -382,31 +458,185 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
     return nsubst_total
 
 def coarse_hdd_wrapper (): 
-    coarse_hdd (scopes, cmds, terms)
+    scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
+    cmds = _filter_cmds (lambda x: x.is_assert(), scopes, g_args.bfs)  
+    terms = _filter_terms_hdd (lambda x: isinstance(x, SMTNode),[t for term_list in [c.children if c.is_getvalue() else [c.children[-1]] \
+                for c in cmds] for t in term_list])
+
+    nsubst_total = 0
+    nsubst_round = 1
+    while nsubst_round:
+        nsubst_round = coarse_hdd (scopes, cmds, terms)
+        nsubst_total += nsubst_round
 
 def coarse_hdd (scopes, cmds, terms):
     global g_tmpfile, g_args, g_smtformula
+    sf = g_smtformula
 
     nsubst_total = 0
     nscopes_subst = 0
     ncmds_subst = 0
     nterms_subst = 0
     
-    scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
-    cmds = _filter_cmds (lambda x: x.is_assert(), scopes, g_args.bfs)  
-    terms = [t for term_list in [c.children if c.is_getvalue() else [c.children[-1]] \
-                for c in cmds] for t in term_list]
-    to_subst = []
+    level = 0
 
-    while to_subst:
-        nscopes_subst += _substitute (lambda x: None, g_smtformula.subst_scopes, scopes, g_args.randomized)
-        ncmds_subst += _substitute (lambda x: None, g_smtformula.subst_cmds, cmds, g_args.randomized)
-        nsubst_total += nscopes_subst + ncmds_subst
-        #nterms_subst += _substitute (lambda x: None, g_smtformula.subst_terms, terms, g_args.randomized)
-        to_subst_children = []
-        for node in to_subst:
-            to_subst_children.extend(node.get_subst().children)
-        to_subst = to_subst_children
+    while scopes or cmds or terms:
+        _log(1, "at level {}:".format(level))
+        temp_scopes = []
+        temp_cmds = []
+        temp_terms = []
+
+        if scopes:
+            nscopes_subst += _substitute_scopes_hdd (scopes, g_args.randomized)
+            for node in scopes:
+                if node.get_subst(): 
+                    temp_scopes.extend(node.get_subst().scopes)
+                    temp_cmds.extend(node.get_subst().cmds)
+                    #temp_cmds.extend(node.get_subst().declfun_cmds)
+            scopes = temp_scopes
+
+        if cmds:
+            ncmds_subst += _substitute_cmds_hdd (cmds, g_args.randomized)
+            for node in cmds: 
+                if node.get_subst() and node.get_subst().is_getvalue():
+                    temp_terms.extend(node.get_subst().children)
+                elif node.get_subst() and node.get_subst().children:
+                    if node.get_subst():
+                        for c in node.get_subst().children:
+                            if isinstance(c, SMTNode):
+                                temp_terms.append(c)
+            cmds = temp_cmds
+
+        nterms_subst += _substitute_terms_hdd (
+            lambda x: sf.boolConstNode("false"),
+            lambda x: not x.is_const() \
+                and x.sort and x.sort.is_bool_sort(),
+            terms, g_args.randomized, 
+        "  substitute Boolean terms with 'false'")
+
+        nterms_subst += _substitute_terms_hdd (
+            lambda x: sf.boolConstNode("true"),
+            lambda x: not x.is_const() \
+                and x.sort and x.sort.is_bool_sort(),
+            terms, g_args.randomized, 
+        "  substitute Boolean terms with 'true'")
+
+        nterms_subst += _substitute_terms_hdd (
+     	   lambda x: x.children[1].get_subst() \
+     	       if x.children[0].get_subst().is_false_bvconst()\
+     	       else x.children[0].get_subst(),
+     	   lambda x: x.is_bvor() and \
+     	       (x.children[0].get_subst().is_false_bvconst() \
+     		or
+     		x.children[1].get_subst().is_false_bvconst()),
+     	   terms, g_args.randomized, 
+     	   "  substitute (bvor term false) with term")
+
+        nterms_subst += _substitute_terms_hdd (
+     	   lambda x: x.children[1].get_subst() \
+     	       if x.children[0].get_subst().is_true_bvconst() \
+     	       else x.children[0].get_subst(),
+     	   lambda x: x.is_and() and \
+     	       (x.children[0].get_subst().is_true_bvconst() \
+     		or
+     		x.children[1].get_subst().is_true_bvconst()),
+     	   terms, g_args.randomized, 
+     	   "  substitute (bvand term true) with term")
+
+        if sf.is_bv_logic():
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.bvZeroConstNode(x.sort),
+                    lambda x: not x.is_const() \
+                              and x.sort and x.sort.is_bv_sort(),
+                    terms, g_args.randomized, 
+                    "  substitute BV terms with '0'")
+
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                    lambda x: not x.is_const()                   \
+                              and x.sort and x.sort.is_bv_sort() \
+                              and not sf.is_substvar(x),
+                    terms, g_args.randomized,
+                    "  substitute BV terms with fresh variables",
+                    True)
+
+        if sf.is_int_logic() or sf.is_real_logic():
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.zeroConstNNode(),
+                    lambda x: not x.is_const() \
+                              and x.sort and x.sort.is_int_sort(),
+                    terms, g_args.randomized, 
+                    "  substitute Int terms with '0'")
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                    lambda x: not x.is_const()                    \
+                              and x.sort and x.sort.is_int_sort() \
+                              and not sf.is_substvar(x),
+                    terms, g_args.randomized,
+                    "  substitute Int terms with fresh variables",
+                    True)
+
+        if sf.is_real_logic():
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.zeroConstDNode(),
+                    lambda x: not x.is_const() \
+                              and x.sort and x.sort.is_real_sort(),
+                    terms, g_args.randomized, 
+                    "  substitute Real terms with '0'")
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: sf.add_fresh_declfunCmdNode(x.sort),
+                    lambda x: not x.is_const()                     \
+                              and x.sort and x.sort.is_real_sort() \
+                              and not sf.is_substvar(x),
+                    terms, g_args.randomized,
+                    "  substitute Real terms with fresh variables",
+                    True)
+
+        nterms_subst += _substitute_terms_hdd (
+                lambda x: x.children[-1].get_subst(),
+                lambda x: x.is_let(),
+                terms, g_args.randomized, 
+                "  substitute LETs with child term")
+
+        nterms_subst += _substitute_terms_hdd (
+                lambda x: None,
+                lambda x: x.is_varb() and x.children[0].is_subst(),
+                terms, g_args.randomized,
+                "  eliminate redundant variable bindings")
+
+        if sf.is_arr_logic():
+            nterms_subst += _substitute_terms_hdd (
+                    lambda x: x.children[0],  # array
+                    lambda x: x.is_write(),
+                    terms, g_args.randomized,
+                    "  substitute STOREs with array child")
+
+        nterms_subst += _substitute_terms_hdd (
+                lambda x: x.children[1],  # left child
+                lambda x: x.is_ite(),
+                terms, g_args.randomized,
+                "  substitute ITE with left child")
+        nterms_subst += _substitute_terms_hdd (
+                lambda x: x.children[2],  # right child
+                lambda x: x.is_ite(),
+                terms, g_args.randomized,
+                "  substitute ITE with right child")
+
+        nsubst_total += nscopes_subst + ncmds_subst + nterms_subst
+
+
+        
+        for node in terms:
+            if node.get_subst():
+                temp_terms.extend(node.get_subst().children)
+        
+        scopes = temp_scopes
+        cmds = temp_cmds
+        terms = temp_terms
+            
+        level += 1
+
+    return nsubst_total
     
     
    
@@ -749,7 +979,7 @@ if __name__ == "__main__":
                               default=None, type=float,
                               help="timeout for test runs in seconds " \
                                    "(default: none)")
-        aparser.add_argument ("--round", dest="roundtime", metavar = "va", default=None,
+        aparser.add_argument ("--round", dest="roundtime", metavar = "val", default=None,
                               type=float, help="approximate time limit for testing round in seconds")
         aparser.add_argument ("-v", action="count", default=0,
                               dest="verbosity", help="increase verbosity")
@@ -825,7 +1055,7 @@ if __name__ == "__main__":
             _log (1, "golden err: {}".format(
                         str(g_golden_err.decode()).strip()))
 
-        coarse_hdd-wrapper ()
+        coarse_hdd_wrapper ()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
