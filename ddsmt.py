@@ -494,16 +494,14 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
 def coarse_hdd_wrapper (): 
     scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
     cmds = _filter_cmds (lambda x: x.is_assert(), scopes, g_args.bfs)  
-    terms = _filter_terms_hdd (lambda x: isinstance(x, SMTNode),[t for term_list in [c.children if c.is_getvalue() else [c.children[-1]] \
-                for c in cmds] for t in term_list])
 
     nsubst_total = 0
     nsubst_round = 1
     while nsubst_round:
-        nsubst_round = coarse_hdd (scopes, cmds, terms)
+        nsubst_round = coarse_hdd (scopes, cmds)
         nsubst_total += nsubst_round
 
-def coarse_hdd (scopes, cmds, terms):
+def coarse_hdd (scopes, cmds):
     global g_tmpfile, g_args, g_smtformula
     sf = g_smtformula
 
@@ -513,51 +511,60 @@ def coarse_hdd (scopes, cmds, terms):
     nterms_subst = 0
     nsubst_round = 1
     
-    level = 0
     while nsubst_round:
         nsubst_round = 0
-        while scopes or cmds or terms:
+        level = 0
+        terms = []
+        while scopes or cmds:
             _log(1, "at level {}:".format(level))
             temp_scopes = []
-            temp_cmds = []
-            temp_terms = []
             cmds = []
 
             if scopes:
-                nscopes_subst += _substitute_scopes_hdd (scopes, g_args.randomized)
+                nsubst = _substitute_scopes_hdd (scopes, g_args.randomized)
                 for node in scopes:
                     if node.get_subst(): 
                         temp_scopes.extend(node.get_subst().scopes)
                         cmds.extend(node.get_subst().cmds)
-                        #temp_cmds.extend(node.get_subst().declfun_cmds)
+                        #cmds.extend(node.get_subst().declfun_cmds)
                 scopes = temp_scopes
+                nsubst_round += nsubst
+                nscopes_subst += nsubst
                 
 
             if cmds:
-                ncmds_subst += _substitute_cmds_hdd (cmds, g_args.randomized)
+                nsubst = _substitute_cmds_hdd (cmds, g_args.randomized)
                 for node in cmds: 
                     if node.get_subst() and node.get_subst().is_getvalue():
-                        temp_terms.extend(node.get_subst().children)
+                        terms.extend(node.get_subst().children)
                     elif node.get_subst() and node.get_subst().children:
                         for c in node.get_subst().children:
                             if isinstance(c, SMTNode):
-                                temp_terms.append(c)
+                                terms.append(c)
+                nsubst_round += nsubst
+                ncmds_subst += nsubst
+            level += 1
 
-            nterms_subst += _substitute_terms_hdd (
+        level = 0
+        while terms:
+            _log(1, "at level {}:".format(level))
+            temp_terms = []
+            nsubst = 0
+            nsubst += _substitute_terms_hdd (
                 lambda x: sf.boolConstNode("false"),
                 lambda x: not x.is_const() \
                     and x.sort and x.sort.is_bool_sort(),
                 terms, g_args.randomized, 
             "  substitute Boolean terms with 'false'")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                 lambda x: sf.boolConstNode("true"),
                 lambda x: not x.is_const() \
                     and x.sort and x.sort.is_bool_sort(),
                 terms, g_args.randomized, 
             "  substitute Boolean terms with 'true'")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                lambda x: x.children[1].get_subst() \
                    if x.children[0].get_subst().is_false_const()\
                    else x.children[0].get_subst(),
@@ -568,7 +575,7 @@ def coarse_hdd (scopes, cmds, terms):
                terms, g_args.randomized, 
                "  substitute (or term false) with term")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                lambda x: x.children[1].get_subst() \
                    if x.children[0].get_subst().is_true_const()\
                    else x.children[0].get_subst(),
@@ -579,21 +586,21 @@ def coarse_hdd (scopes, cmds, terms):
                terms, g_args.randomized, 
                "  substitute (and term true) with term")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                     lambda x: x.children[-1].get_subst(),
                     lambda x: x.children,
                     terms, g_args.randomized, 
                     "  substitute internal nodes with child term")
 
             if sf.is_bv_logic():
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.bvZeroConstNode(x.sort),
                         lambda x: not x.is_const() \
                                   and x.sort and x.sort.is_bv_sort(),
                         terms, g_args.randomized, 
                         "  substitute BV terms with '0'")
 
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
          	       lambda x: x.children[1].get_subst() \
          	           if x.children[0].get_subst().is_false_bvconst()\
          	           else x.children[0].get_subst(),
@@ -604,7 +611,7 @@ def coarse_hdd (scopes, cmds, terms):
          	       terms, g_args.randomized, 
          	       "  substitute (bvor term false) with term")
 
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
          	       lambda x: x.children[1].get_subst() \
          	           if x.children[0].get_subst().is_true_bvconst() \
          	           else x.children[0].get_subst(),
@@ -615,7 +622,7 @@ def coarse_hdd (scopes, cmds, terms):
          	       terms, g_args.randomized, 
          	       "  substitute (bvand term true) with term")
 
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.add_fresh_declfunCmdNode(x.sort),
                         lambda x: not x.is_const()                   \
                                   and x.sort and x.sort.is_bv_sort() \
@@ -625,13 +632,13 @@ def coarse_hdd (scopes, cmds, terms):
                         True)
 
             if sf.is_int_logic() or sf.is_real_logic():
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.zeroConstNNode(),
                         lambda x: not x.is_const() \
                                   and x.sort and x.sort.is_int_sort(),
                         terms, g_args.randomized, 
                         "  substitute Int terms with '0'")
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.add_fresh_declfunCmdNode(x.sort),
                         lambda x: not x.is_const()                    \
                                   and x.sort and x.sort.is_int_sort() \
@@ -641,13 +648,13 @@ def coarse_hdd (scopes, cmds, terms):
                         True)
 
             if sf.is_real_logic():
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.zeroConstDNode(),
                         lambda x: not x.is_const() \
                                   and x.sort and x.sort.is_real_sort(),
                         terms, g_args.randomized, 
                         "  substitute Real terms with '0'")
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: sf.add_fresh_declfunCmdNode(x.sort),
                         lambda x: not x.is_const()                     \
                                   and x.sort and x.sort.is_real_sort() \
@@ -669,24 +676,25 @@ def coarse_hdd (scopes, cmds, terms):
                     "  eliminate redundant variable bindings")
 
             if sf.is_arr_logic():
-                nterms_subst += _substitute_terms_hdd (
+                nsubst += _substitute_terms_hdd (
                         lambda x: x.children[0],  # array
                         lambda x: x.is_write(),
                         terms, g_args.randomized,
                         "  substitute STOREs with array child")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                     lambda x: x.children[1],  # left child
                     lambda x: x.is_ite(),
                     terms, g_args.randomized,
                     "  substitute ITE with left child")
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                     lambda x: x.children[2],  # right child
                     lambda x: x.is_ite(),
                     terms, g_args.randomized,
                     "  substitute ITE with right child")
 
-            nsubst_round += nscopes_subst + ncmds_subst + nterms_subst
+            nsubst_round += nsubst
+            nterms_subst += nsubst
 
 
             
@@ -694,8 +702,6 @@ def coarse_hdd (scopes, cmds, terms):
                 if node.get_subst():
                     temp_terms.extend(node.get_subst().children)
             
-            scopes = temp_scopes
-            cmds = temp_cmds
             terms = temp_terms
                 
             level += 1
