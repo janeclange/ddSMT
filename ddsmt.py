@@ -1122,7 +1122,7 @@ if __name__ == "__main__":
             _log (1, "golden err: {}".format(
                         g_args.cmpoutput))
 
-        ddsmt_main ()
+        coarse_hdd_wrapper ()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
