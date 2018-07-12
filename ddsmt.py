@@ -30,7 +30,7 @@ import time
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
 from parser.ddsmtparser import SMTNode, DDSMTParser, DDSMTParseException
-
+from multiprocessing import Pool
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
@@ -292,6 +292,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
             complement = set(superset) - set(subset)
+
             for item in complement:
                 if not item.is_subst():
                     item.subst (subst_fun(item))
