@@ -112,7 +112,7 @@ def _run (is_golden = False):
         start = time.time()
         cmd = DDSMTCmd (g_args.cmd, g_args.timeout, _log)
         (out, err) = cmd.run_cmd(is_golden)
-        return (cmd.rcode, err)
+        return (cmd.rcode, out, err)
     except OSError as e:
         raise DDSMTException ("{}: {}".format(str(e), g_cmd[0]))
 
@@ -120,10 +120,9 @@ def _run (is_golden = False):
 def _test ():
     global g_args, g_ntests
     g_ntests += 1
-    (exitcode, err) = _run()
-    if g_args.cmpoutput:
-        return exitcode == g_golden_exit and err == g_golden_err
-    return exitcode == g_golden_exit
+    (exitcode, out, err) = _run()
+    return exitcode == g_golden_exit and \
+        (g_args.cmpoutput in err.decode() or g_args.cmpoutput in out.decode())
 
 def _filter_scopes_hdd (filter_fun, scopes):
     nodes = []
@@ -264,22 +263,23 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
        :return:     Total number of nodes substituted.
        """
 
+    superset = set(superset)
     global g_smtformula
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     nsubst_total = 0
-    gran = len(superset)
-    
-    while gran > 0:
-        start_time = time.time()
-        if randomized and gran > 1:
-            subsets = [random.sample(superset, gran) for s in range(0, len(superset), gran)]
-        else:
-            subsets = [superset[s:s+gran] for s in range (0, len(superset), gran)]
-        cpy_subsets = subsets[0:]
-         
 
+    gran = len(superset)
+
+    while gran > 0:
+
+        start_time = time.time()
+        if randomized:
+            subsets = [set(random.sample(superset, gran)) for s in range(0, len(superset), gran)]
+        else:
+            subsets = [set(list(superset)[s:s+gran]) for s in range (0, len(superset), gran)]
+        
         tests_performed = 0
         for subset in subsets:
             if g_args.roundtime:
@@ -288,6 +288,37 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                     break
 
             tests_performed += 1
+            nsubst = 0
+            cpy_substs = substlist.substs.copy()
+            cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+            complement = set(superset) - set(subset)
+            for item in complement:
+                if not item.is_subst():
+                    item.subst (subst_fun(item))
+                    nsubst += 1
+            if nsubst == 0:
+                continue
+
+            _dump (g_tmpfile)
+
+            if _test():
+                _dump (g_args.outfile)
+                nsubst_total += nsubst
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+                         "".format(gran, tests_performed, len(subsets), nsubst), True)
+                superset = subset
+            else:
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+                         "".format(gran, tests_performed, len(subsets)), True)
+                substlist.substs = cpy_substs
+                if with_vars:
+                    for name in g_smtformula.scopes.declfun_cmds:
+                        assert (g_smtformula.find_fun(
+                            name, scope = g_smtformula.scopes))
+                        if name not in cpy_declfun_cmds:
+                            g_smtformula.delete_fun(name)
+                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
@@ -305,7 +336,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 nsubst_total += nsubst
                 _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
                          "".format(gran, tests_performed, len(subsets), nsubst), True)
-                del (cpy_subsets[cpy_subsets.index(subset)])
+                superset = superset - subset
             else:
                 _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
                          "".format(gran, tests_performed, len(subsets)), True)
@@ -317,8 +348,8 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                         if name not in cpy_declfun_cmds:
                             g_smtformula.delete_fun(name)
                 g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
-        superset = [s for subset in cpy_subsets for s in subset]
-        gran = int(gran * 0.9)
+
+        gran = min(len(superset), gran // 2)
     return nsubst_total
 
 def _substitute_scopes_hdd (scopes, randomized):
@@ -1014,11 +1045,10 @@ if __name__ == "__main__":
                               type=float, help="approximate time limit for testing round in seconds")
         aparser.add_argument ("-v", action="count", default=0,
                               dest="verbosity", help="increase verbosity")
-        aparser.add_argument ("-o", action="store_false", dest="cmpoutput",
-                              default = True,
-                              help = "use err exit code only "\
+        aparser.add_argument ("-o", dest="cmpoutput",
+                              help = "use exit code and search pattern string "\
                                      "to identify failing input (default: "\
-                                     "error exit code and stderr output)")
+                                     "error exit code and stderr output)") 
         aparser.add_argument ("--version", action="version",
                               version=__version__)
         g_args = aparser.parse_args()
@@ -1080,13 +1110,15 @@ if __name__ == "__main__":
         g_args.cmd.append(g_tmpfile)
         _log (1)
         _log (1, "starting initial run... ")
-        (g_golden_exit, g_golden_err) = _run(True)
+        (g_golden_exit, out, g_golden_err) = _run(True)
+        if g_args.cmpoutput == None:
+            g_args.cmpoutput = g_golden_err.decode()
         _log (1, "golden exit: {}".format(g_golden_exit))
         if g_args.cmpoutput:
             _log (1, "golden err: {}".format(
-                        str(g_golden_err.decode()).strip()))
+                        g_args.cmpoutput))
 
-        coarse_hdd_wrapper ()
+        ddsmt_main ()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
