@@ -175,8 +175,8 @@ def _filter_scopes (filter_fun, bfs, root = None):
         to_visit.extend(cur.scopes)
     return scopes
 
-def _filter_cmds (filter_fun, bfs):
-    """_filter_cmds(filter_fun, bfs)
+def _filter_cmds (filter_fun, scopes, bfs):
+    """_filter_cmds(filter_fun, scopes, bfs)
 
        Collect a list of command nodes that fit a condition defined by given filtering 
        function filter_fun.
@@ -185,6 +185,7 @@ def _filter_cmds (filter_fun, bfs):
        depth-first.
 
        :filter_fun:  Boolean function that returns True if a node should be added.
+       :scopes: 
        :bfs:         Bool indicating whether to use breadth-first search.
        :return:      List of command nodes that fit the filtering condition.
     """
