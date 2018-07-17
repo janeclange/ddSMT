@@ -966,6 +966,12 @@ class SMTCmdNode:
 
     def is_definefun (self):
         return self.kind == KIND_DEFFUN
+ 
+    def is_declfun (self):
+        return self.kind == KIND_DECLFUN
+
+    def is_declconst(self):
+        return self.kind == KIND_DECLCONST
 
     def is_getvalue (self):
         return self.kind == KIND_GETVALUE

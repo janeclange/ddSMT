@@ -138,8 +138,8 @@ def _test ():
 def _filter_scopes_hdd (filter_fun, scopes):
     nodes = []
     for s in scopes:
-        if filter_fun(s):
-            nodes.append(s)
+        if s.get_subst() and filter_fun(s.get_subst()):
+            nodes.append(s.get_subst())
     return nodes
 
 def _filter_scopes (filter_fun, bfs, root = None):
@@ -179,11 +179,11 @@ def _filter_cmds_hdd (filter_fun, cmds):
 
     nodes = []
     for c in cmds:
-        if filter_fun(c):
-            nodes.append(c)
+        if c.get_subst() and filter_fun(c.get_subst()):
+            nodes.append(c.get_subst())
     return nodes
 
-def _filter_cmds (filter_fun, scopes, bfs):
+def _filter_cmds (filter_fun, bfs):
     """_filter_cmds(filter_fun, scopes, bfs)
 
        Collect a list of command nodes that fit a condition defined by given filtering 
@@ -200,6 +200,7 @@ def _filter_cmds (filter_fun, scopes, bfs):
     global g_smtformula
     assert (g_smtformula)
     cmds = []
+    scopes = _filter_scopes (lambda x: x.is_regular(), bfs)
     to_visit = [c for cmd_list in [s.cmds for s in scopes] for c in cmd_list]
     to_visit.extend(g_smtformula.scopes.declfun_cmds.values())
     while to_visit:
@@ -227,9 +228,10 @@ def _filter_terms_hdd (filter_fun, terms):
 
     nodes = []
     for t in terms:
-        if filter_fun(t):
-            nodes.append(t)
+        if t.get_subst() and filter_fun(t.get_subst()):
+            nodes.append(t.get_subst())
     return nodes
+
 def _filter_terms (filter_fun, bfs, roots):
     """_filter_terms(filter_fun, bfs, roots) 
        
@@ -528,8 +530,22 @@ def coarse_hdd ():
         nsubst_round = 0
         level = 0
         terms = []
+        
+        if nrounds > 1: #pass to eliminate definitions of functions that aren't called 
+            _log(1, "removing redundant definitions and declarations")
+            all_funapps = _filter_terms(lambda x: isinstance(x, SMTFunAppNode), g_args.bfs, [t for term_list in
+                [c.children if c.is_gevalue() else [c.children[-1]] \
+                for c in cmds] for t in term_list])
+            names = [t.fun.name for t in all_funapps]
+            definitions = _filter_cmds(lambda x: x.is_definefun() or x.is_declfun() or x.is_declconst(), g_args.bfs)
+            to_remove = [d for d in definitions if not d.children[0].name in names]
+            _log (1, "definitions: {}".format(len(to_remove)))
+            nsubst_round += _substitute_cmds_hdd (to_remove, g_args.randomized)
+            ncmds_subst += nsubst_round
+            _log(1, "removed {} commands".format(nsubst_round))
+
         while scopes:
-            _log(1, "at level {}:".format(level))
+            _log(2, "at level {}:".format(level))
             temp_scopes = []
             cmds = []
 
@@ -545,11 +561,8 @@ def coarse_hdd ():
                 nscopes_subst += nsubst
                 
 
-            if cmds:
-                if nrounds > 1:
-                    nsubst = _substitute_cmds_hdd (cmds, g_args.randomized)
-                else:
-                    nsubst = _substitute_cmds_hdd (_filter_cmds_hdd(lambda x: x.is_assert(), cmds), g_args.randomized)
+            if cmds: #no declarations 
+                nsubst = _substitute_cmds_hdd (_filter_cmds_hdd(lambda x: not (x.is_declfun() or x.is_definefun() or x.is_declconst()), cmds), g_args.randomized)
 
                 for node in cmds: 
                     if node.get_subst() and node.get_subst().is_getvalue():
@@ -713,8 +726,6 @@ def coarse_hdd ():
             nsubst_round += nsubst
             nterms_subst += nsubst
 
-
-            
             for node in terms:
                 if node.get_subst():
                     temp_terms.extend(node.get_subst().children)
@@ -725,7 +736,7 @@ def coarse_hdd ():
 
         nsubst_total += nsubst_round
     _log (1)
-    _log (2, "total testing time: {0: .2f}".format(g_testtime))
+    _log (1, "total testing time: {0: .2f}".format(g_testtime))
     _log (1, "rounds total: {}".format(nrounds))
     _log (1, "tests  total: {}".format(g_ntests))
     _log (1, "substs total: {}".format(nsubst_total))
