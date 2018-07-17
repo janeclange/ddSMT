@@ -1,0 +1,11 @@
+(set-logic ALL)
+(declare-fun _substvar_79_ () Bool)
+(declare-fun _substvar_34_ () Bool)
+(declare-fun _substvar_35_ () Bool)
+(assert (let ((X1 false)) (and (= false (and _substvar_79_ _substvar_34_)) true true true true true true)))
+(check-sat)
+(assert false)
+(push 1)
+(assert _substvar_35_)
+(check-sat)
+

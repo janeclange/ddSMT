@@ -674,6 +674,22 @@ def ddsmt_main ():
                     break
 
                 nsubst = _substitute_terms (
+                        lambda x: x.children[1].get_subst() \
+                                if x.children[0].get_subst().is_true_const() \
+                                else x.children[0].get_subst(),
+                        lambda x: x.is_impl() \
+                                and (x.children[0].get_subst().is_true_const() \
+                                or x.children[1].get_subst().is_true_const()),
+                        cmds[i], g_args.bfs, g_args.randomized,
+                        "  substitute (implies term true) with term")
+                if nsubst:
+                    succeeded = "impl_{}".format(i)
+                    nsubst_round += nsubst
+                    nterms_subst += nsubst
+                elif succeeded == "impl_{}".format(i):
+                    break
+
+                nsubst = _substitute_terms (
                         lambda x: sf.add_fresh_declfunCmdNode(x.sort),
                         lambda x: not x.is_const()                   \
                                   and x.sort and x.sort.is_bool_sort() \

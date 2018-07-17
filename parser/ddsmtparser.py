@@ -304,6 +304,9 @@ class SMTNode:
     def is_or (self):
         return False
 
+    def is_impl(self):
+        return False
+
     def is_bvand (self):
         return False
 
@@ -582,6 +585,9 @@ class SMTFunAppNode (SMTNode):
 
     def is_or (self):
         return self.kind == KIND_OR
+ 
+    def is_impl(self):
+        return self.kind == KIND_IMPL
 
     def is_bvand (self):
         return self.kind == KIND_BVAND
