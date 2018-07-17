@@ -175,6 +175,14 @@ def _filter_scopes (filter_fun, bfs, root = None):
         to_visit.extend(cur.scopes)
     return scopes
 
+def _filter_cmds_hdd (filter_fun, cmds):
+
+    nodes = []
+    for c in cmds:
+        if filter_fun(c):
+            nodes.append(c)
+    return nodes
+
 def _filter_cmds (filter_fun, scopes, bfs):
     """_filter_cmds(filter_fun, scopes, bfs)
 
@@ -502,16 +510,7 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
     _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
-def coarse_hdd_wrapper (): 
-    scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
-    cmds = _filter_cmds (lambda x: x.is_assert(), scopes, g_args.bfs)  
-
-    nsubst_total = 0
-    nsubst_round = 1
-    nsubst_round = coarse_hdd (scopes, cmds)
-    nsubst_total += nsubst_round
-
-def coarse_hdd (scopes, cmds):
+def coarse_hdd ():
     global g_tmpfile, g_args, g_smtformula
     sf = g_smtformula
 
@@ -520,12 +519,16 @@ def coarse_hdd (scopes, cmds):
     ncmds_subst = 0
     nterms_subst = 0
     nsubst_round = 1
+    nrounds = 0
     
     while nsubst_round:
+        scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
+
+        nrounds += 1 
         nsubst_round = 0
         level = 0
         terms = []
-        while scopes or cmds:
+        while scopes:
             _log(1, "at level {}:".format(level))
             temp_scopes = []
             cmds = []
@@ -543,7 +546,11 @@ def coarse_hdd (scopes, cmds):
                 
 
             if cmds:
-                nsubst = _substitute_cmds_hdd (cmds, g_args.randomized)
+		if nrounds > 1:
+                    nsubst = _substitute_cmds_hdd (cmds, g_args.randomized)
+                else:
+                    nsubst = _substitute_cmds_hdd (_filter_cmds_hdd(lambda x: x.is_assert(), cmds), g_args.randomized)
+
                 for node in cmds: 
                     if node.get_subst() and node.get_subst().is_getvalue():
                         terms.extend(node.get_subst().children)
@@ -719,7 +726,7 @@ def coarse_hdd (scopes, cmds):
         nsubst_total += nsubst_round
     _log (1)
     _log (2, "total testing time: {0: .2f}".format(g_testtime))
-    #_log (1, "rounds total: {}".format(nrounds))
+    _log (1, "rounds total: {}".format(nrounds))
     _log (1, "tests  total: {}".format(g_ntests))
     _log (1, "substs total: {}".format(nsubst_total))
     _log (1)
@@ -1157,7 +1164,7 @@ if __name__ == "__main__":
                         g_args.cmpoutput))
         _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
 
-        coarse_hdd_wrapper ()
+        coarse_hdd ()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
