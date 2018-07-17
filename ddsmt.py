@@ -282,7 +282,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                           g_smtformula.subst_nodes))
     nsubst_total = 0
 
-    gran = len(superset)
+    gran = len(superset) // 2
 
     while gran > 0:
 
@@ -508,9 +508,8 @@ def coarse_hdd_wrapper ():
 
     nsubst_total = 0
     nsubst_round = 1
-    while nsubst_round:
-        nsubst_round = coarse_hdd (scopes, cmds)
-        nsubst_total += nsubst_round
+    nsubst_round = coarse_hdd (scopes, cmds)
+    nsubst_total += nsubst_round
 
 def coarse_hdd (scopes, cmds):
     global g_tmpfile, g_args, g_smtformula
@@ -718,6 +717,15 @@ def coarse_hdd (scopes, cmds):
             level += 1
 
         nsubst_total += nsubst_round
+    _log (1)
+    _log (2, "total testing time: {0: .2f}".format(g_testtime))
+    #_log (1, "rounds total: {}".format(nrounds))
+    _log (1, "tests  total: {}".format(g_ntests))
+    _log (1, "substs total: {}".format(nsubst_total))
+    _log (1)
+    _log (1, "scopes substituted: {}".format(nscopes_subst))
+    _log (1, "cmds   substituted: {}".format(ncmds_subst))
+    _log (1, "terms  substituted: {}".format(nterms_subst))
     return nsubst_total
     
     
