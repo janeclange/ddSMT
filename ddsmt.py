@@ -546,7 +546,7 @@ def coarse_hdd ():
                 
 
             if cmds:
-		if nrounds > 1:
+                if nrounds > 1:
                     nsubst = _substitute_cmds_hdd (cmds, g_args.randomized)
                 else:
                     nsubst = _substitute_cmds_hdd (_filter_cmds_hdd(lambda x: x.is_assert(), cmds), g_args.randomized)
