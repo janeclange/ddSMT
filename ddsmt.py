@@ -29,7 +29,7 @@ import time
 
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
-from parser.ddsmtparser import SMTNode, DDSMTParser, DDSMTParseException
+from parser.ddsmtparser import SMTNode, SMTFunAppNode, DDSMTParser, DDSMTParseException
 from multiprocessing import Pool
 
 __version__ = "1.0"
@@ -184,7 +184,7 @@ def _filter_cmds_hdd (filter_fun, cmds):
     return nodes
 
 def _filter_cmds (filter_fun, bfs):
-    """_filter_cmds(filter_fun, scopes, bfs)
+    """_filter_cmds(filter_fun, bfs)
 
        Collect a list of command nodes that fit a condition defined by given filtering 
        function filter_fun.
@@ -533,9 +533,9 @@ def coarse_hdd ():
         
         if nrounds > 1: #pass to eliminate definitions of functions that aren't called 
             _log(1, "removing redundant definitions and declarations")
-            all_funapps = _filter_terms(lambda x: isinstance(x, SMTFunAppNode), g_args.bfs, [t for term_list in
-                [c.children if c.is_gevalue() else [c.children[-1]] \
-                for c in cmds] for t in term_list])
+            cmds = _filter_cmds (lambda x: True, g_args.bfs) 
+            all_funapps = _filter_terms(lambda x: isinstance(x, SMTFunAppNode), g_args.bfs, [t for c in
+                cmds for t in c.children if isinstance(t, SMTNode)])
             names = [t.fun.name for t in all_funapps]
             definitions = _filter_cmds(lambda x: x.is_definefun() or x.is_declfun() or x.is_declconst(), g_args.bfs)
             to_remove = [d for d in definitions if not d.children[0].name in names]
@@ -570,7 +570,7 @@ def coarse_hdd ():
                     elif node.get_subst() and node.get_subst().children:
                         for c in node.get_subst().children:
                             if isinstance(c, SMTNode):
-                                terms.append(c)
+                                terms.append(c.get_subst())
                 nsubst_round += nsubst
                 ncmds_subst += nsubst
             level += 1
@@ -580,6 +580,13 @@ def coarse_hdd ():
             _log(1, "at level {}:".format(level))
             temp_terms = []
             nsubst = 0
+
+            nsubst += _substitute_terms_hdd (
+                    lambda x: x.children[-1].get_subst(),
+                    lambda x: x.children,
+                    terms, g_args.randomized, 
+                    "  substitute internal nodes with child term")
+
             nsubst += _substitute_terms_hdd (
                 lambda x: sf.boolConstNode("false"),
                 lambda x: not x.is_const() \
@@ -594,16 +601,14 @@ def coarse_hdd ():
                 terms, g_args.randomized, 
             "  substitute Boolean terms with 'true'")
 
-            nsubst += _substitute_terms_hdd (
-               lambda x: x.children[1].get_subst() \
-                   if x.children[0].get_subst().is_false_const()\
-                   else x.children[0].get_subst(),
-               lambda x: x.is_or() and \
-                   (x.children[0].get_subst().is_false_const() \
+            andtrue = _filter_terms_hdd(lambda x: x.is_and() and \
+                   (x.children[0].get_subst().is_true_const() \
                 or
-                x.children[1].get_subst().is_false_const()),
-               terms, g_args.randomized, 
-               "  substitute (or term false) with term")
+                x.children[1].get_subst().is_true_const()), terms)
+
+            _log(1, "number of and true: {}".format(len(andtrue)))
+            if (len(andtrue) and andtrue[0].children[1].get_subst().is_true_const()): 
+                print("is true const")
 
             nsubst += _substitute_terms_hdd (
                lambda x: x.children[1].get_subst() \
@@ -617,10 +622,15 @@ def coarse_hdd ():
                "  substitute (and term true) with term")
 
             nsubst += _substitute_terms_hdd (
-                    lambda x: x.children[-1].get_subst(),
-                    lambda x: x.children,
-                    terms, g_args.randomized, 
-                    "  substitute internal nodes with child term")
+               lambda x: x.children[1].get_subst() \
+                   if x.children[0].get_subst().is_false_const()\
+                   else x.children[0].get_subst(),
+               lambda x: x.is_or() and \
+                   (x.children[0].get_subst().is_false_const() \
+                or
+                x.children[1].get_subst().is_false_const()),
+               terms, g_args.randomized, 
+               "  substitute (or term false) with term")
 
             if sf.is_bv_logic():
                 nsubst += _substitute_terms_hdd (
@@ -717,6 +727,7 @@ def coarse_hdd ():
                     lambda x: x.is_ite(),
                     terms, g_args.randomized,
                     "  substitute ITE with left child")
+
             nsubst += _substitute_terms_hdd (
                     lambda x: x.children[2],  # right child
                     lambda x: x.is_ite(),
