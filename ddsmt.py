@@ -138,8 +138,8 @@ def _test ():
 def _filter_scopes_hdd (filter_fun, scopes):
     nodes = []
     for s in scopes:
-        if s.get_subst() and filter_fun(s.get_subst()):
-            nodes.append(s.get_subst())
+        if not s.is_subst() and filter_fun(s):
+            nodes.append(s)
     return nodes
 
 def _filter_scopes (filter_fun, bfs, root = None):
@@ -179,8 +179,8 @@ def _filter_cmds_hdd (filter_fun, cmds):
 
     nodes = []
     for c in cmds:
-        if c.get_subst() and filter_fun(c.get_subst()):
-            nodes.append(c.get_subst())
+        if not c.is_subst() and filter_fun(c):
+            nodes.append(c)
     return nodes
 
 def _filter_cmds (filter_fun, bfs):
@@ -229,7 +229,7 @@ def _filter_terms_hdd (filter_fun, terms):
     nodes = []
     for t in terms:
         if t.get_subst() and filter_fun(t.get_subst()):
-            nodes.append(t.get_subst())
+            nodes.append(t)
     return nodes
 
 def _filter_terms (filter_fun, bfs, roots):
@@ -258,9 +258,9 @@ def _filter_terms (filter_fun, bfs, roots):
         if not cur or cur.id in visited:
             continue
         visited[cur.id] = cur
-        if cur.is_fun() and cur.children and cur.children[0].is_subst():
-            continue
-        if filter_fun(cur):
+        #if cur.is_fun() and cur.children and cur.children[0].is_subst():
+        #    continue
+        if filter_fun(cur.get_subst()):
             nodes.append(cur)
         if cur.children:
             to_visit.extend(cur.children)
@@ -292,7 +292,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                           g_smtformula.subst_nodes))
     nsubst_total = 0
 
-    gran = len(superset) // 2
+    gran = len(superset)
 
     while gran > 0:
 
@@ -319,28 +319,27 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 if not item.is_subst():
                     item.subst (subst_fun(item))
                     nsubst += 1
-            if nsubst == 0:
-                continue
-
-            _dump (g_tmpfile)
-
-            if _test():
-                _dump (g_args.outfile)
-                nsubst_total += nsubst
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
-                         "".format(gran, tests_performed, len(subsets), nsubst), True)
-                superset = subset
-            else:
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
-                         "".format(gran, tests_performed, len(subsets)), True)
-                substlist.substs = cpy_substs
-                if with_vars:
-                    for name in g_smtformula.scopes.declfun_cmds:
-                        assert (g_smtformula.find_fun(
-                            name, scope = g_smtformula.scopes))
-                        if name not in cpy_declfun_cmds:
-                            g_smtformula.delete_fun(name)
-                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+            if nsubst != 0:
+                _dump (g_tmpfile)
+                start = time.time()
+                if _test():
+                    g_current_runtime = time.time() - start
+                    _dump (g_args.outfile)
+                    nsubst_total += nsubst
+                    _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+                             "".format(gran, tests_performed, len(subsets), nsubst), True)
+                    superset = subset
+                else:
+                    _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+                             "".format(gran, tests_performed, len(subsets)), True)
+                    substlist.substs = cpy_substs
+                    if with_vars:
+                        for name in g_smtformula.scopes.declfun_cmds:
+                            assert (g_smtformula.find_fun(
+                                name, scope = g_smtformula.scopes))
+                            if name not in cpy_declfun_cmds:
+                                g_smtformula.delete_fun(name)
+                    g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
 
             nsubst = 0
             cpy_substs = substlist.substs.copy()
@@ -349,29 +348,27 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 if not item.is_subst():
                     item.subst (subst_fun(item))
                     nsubst += 1
-            if nsubst == 0:
-                continue
-
-            _dump (g_tmpfile)
-            start = time.time()
-            if _test():
-                g_current_runtime = time.time() - start
-                _dump (g_args.outfile)
-                nsubst_total += nsubst
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
-                         "".format(gran, tests_performed, len(subsets), nsubst), True)
-                superset = superset - subset
-            else:
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
-                         "".format(gran, tests_performed, len(subsets)), True)
-                substlist.substs = cpy_substs
-                if with_vars:
-                    for name in g_smtformula.scopes.declfun_cmds:
-                        assert (g_smtformula.find_fun(
-                            name, scope = g_smtformula.scopes))
-                        if name not in cpy_declfun_cmds:
-                            g_smtformula.delete_fun(name)
-                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+            if nsubst != 0:
+                _dump (g_tmpfile)
+                start = time.time()
+                if _test():
+                    g_current_runtime = time.time() - start
+                    _dump (g_args.outfile)
+                    nsubst_total += nsubst
+                    _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+                             "".format(gran, tests_performed, len(subsets), nsubst), True)
+                    superset = superset - subset
+                else:
+                    _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+                             "".format(gran, tests_performed, len(subsets)), True)
+                    substlist.substs = cpy_substs
+                    if with_vars:
+                        for name in g_smtformula.scopes.declfun_cmds:
+                            assert (g_smtformula.find_fun(
+                                name, scope = g_smtformula.scopes))
+                            if name not in cpy_declfun_cmds:
+                                g_smtformula.delete_fun(name)
+                    g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
 
         gran = min(len(superset), gran // 2)
     return nsubst_total
@@ -533,13 +530,12 @@ def coarse_hdd ():
         
         if nrounds > 1: #pass to eliminate definitions of functions that aren't called 
             _log(1, "removing redundant definitions and declarations")
-            cmds = _filter_cmds (lambda x: True, g_args.bfs) 
+            cmds = _filter_cmds (lambda x: not (x.is_definefun() or x.is_declfun() or x.is_declconst()), g_args.bfs) 
             all_funapps = _filter_terms(lambda x: isinstance(x, SMTFunAppNode), g_args.bfs, [t for c in
                 cmds for t in c.children if isinstance(t, SMTNode)])
-            names = [t.fun.name for t in all_funapps]
+            names = [t.get_subst().fun.name for t in all_funapps]
             definitions = _filter_cmds(lambda x: x.is_definefun() or x.is_declfun() or x.is_declconst(), g_args.bfs)
             to_remove = [d for d in definitions if not d.children[0].name in names]
-            _log (1, "definitions: {}".format(len(to_remove)))
             nsubst_round += _substitute_cmds_hdd (to_remove, g_args.randomized)
             ncmds_subst += nsubst_round
             _log(1, "removed {} commands".format(nsubst_round))
@@ -555,14 +551,14 @@ def coarse_hdd ():
                     if node.get_subst(): 
                         temp_scopes.extend(node.get_subst().scopes)
                         cmds.extend(node.get_subst().cmds)
-                        #cmds.extend(node.get_subst().declfun_cmds)
                 scopes = temp_scopes
                 nsubst_round += nsubst
                 nscopes_subst += nsubst
                 
 
             if cmds: #no declarations 
-                nsubst = _substitute_cmds_hdd (_filter_cmds_hdd(lambda x: not (x.is_declfun() or x.is_definefun() or x.is_declconst()), cmds), g_args.randomized)
+                nsubst = _substitute_cmds_hdd (_filter_cmds_hdd 
+                         (lambda x: not (x.is_declfun() or x.is_definefun() or x.is_declconst()), cmds), g_args.randomized)
 
                 for node in cmds: 
                     if node.get_subst() and node.get_subst().is_getvalue():
@@ -570,7 +566,7 @@ def coarse_hdd ():
                     elif node.get_subst() and node.get_subst().children:
                         for c in node.get_subst().children:
                             if isinstance(c, SMTNode):
-                                terms.append(c.get_subst())
+                                terms.append(c)
                 nsubst_round += nsubst
                 ncmds_subst += nsubst
             level += 1
@@ -580,12 +576,6 @@ def coarse_hdd ():
             _log(1, "at level {}:".format(level))
             temp_terms = []
             nsubst = 0
-
-            nsubst += _substitute_terms_hdd (
-                    lambda x: x.children[-1].get_subst(),
-                    lambda x: x.children,
-                    terms, g_args.randomized, 
-                    "  substitute internal nodes with child term")
 
             nsubst += _substitute_terms_hdd (
                 lambda x: sf.boolConstNode("false"),
@@ -600,15 +590,6 @@ def coarse_hdd ():
                     and x.sort and x.sort.is_bool_sort(),
                 terms, g_args.randomized, 
             "  substitute Boolean terms with 'true'")
-
-            andtrue = _filter_terms_hdd(lambda x: x.is_and() and \
-                   (x.children[0].get_subst().is_true_const() \
-                or
-                x.children[1].get_subst().is_true_const()), terms)
-
-            _log(1, "number of and true: {}".format(len(andtrue)))
-            if (len(andtrue) and andtrue[0].children[1].get_subst().is_true_const()): 
-                print("is true const")
 
             nsubst += _substitute_terms_hdd (
                lambda x: x.children[1].get_subst() \
@@ -703,13 +684,13 @@ def coarse_hdd ():
                         "  substitute Real terms with fresh variables",
                         True)
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                     lambda x: x.children[-1].get_subst(),
                     lambda x: x.is_let(),
                     terms, g_args.randomized, 
                     "  substitute LETs with child term")
 
-            nterms_subst += _substitute_terms_hdd (
+            nsubst += _substitute_terms_hdd (
                     lambda x: None,
                     lambda x: x.is_varb() and x.children[0].is_subst(),
                     terms, g_args.randomized,
@@ -734,9 +715,14 @@ def coarse_hdd ():
                     terms, g_args.randomized,
                     "  substitute ITE with right child")
 
+            nsubst += _substitute_terms_hdd (
+                    lambda x: x.children[-1].get_subst(),
+                    lambda x: x.children,
+                    terms, g_args.randomized, 
+                    "  substitute internal nodes with child term")
+
             nsubst_round += nsubst
             nterms_subst += nsubst
-
             for node in terms:
                 if node.get_subst():
                     temp_terms.extend(node.get_subst().children)
@@ -745,6 +731,7 @@ def coarse_hdd ():
                 
             level += 1
 
+        print (nsubst_round)
         nsubst_total += nsubst_round
     _log (1)
     _log (1, "total testing time: {0: .2f}".format(g_testtime))
