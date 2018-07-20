@@ -138,7 +138,7 @@ def _test ():
 def _filter_scopes_hdd (filter_fun, scopes):
     nodes = []
     for s in scopes:
-        if not s.is_subst() and filter_fun(s):
+        if s.get_subst() and filter_fun(s):
             nodes.append(s)
     return nodes
 
@@ -725,7 +725,7 @@ def coarse_hdd ():
             nterms_subst += nsubst
             for node in terms:
                 if node.get_subst():
-                    temp_terms.extend(node.get_subst().children)
+                    temp_terms.extend([c.get_subst() for c in node.get_subst().children])
             
             terms = temp_terms
                 
