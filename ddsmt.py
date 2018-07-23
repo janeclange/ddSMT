@@ -30,7 +30,7 @@ import time
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
 from parser.ddsmtparser import DDSMTParser, DDSMTParseException
-
+from collections import deque
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
@@ -247,61 +247,71 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
        :return:     Total number of nodes substituted.
        """
 
-    superset = set(superset)
+    superset = deque(superset)
     global g_smtformula, g_current_runtime
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     nsubst_total = 0
 
-    gran = len(superset)
+    gran = (len(superset) + 1) // 2
 
-    while gran > 0:
+    for i in range(4):
+        if gran == 0:
+            break
+
+        tests_performed = 0
 
         start_time = time.time()
+        
+        subset = []
+        tests_performed += 1
+        cpy_substs = substlist.substs.copy()
+        cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+        nsubst = 0
+
+        for i in range(gran):
+            item = superset.popleft()
+            if not item.is_subst():
+                item.subst (subst_fun(item))
+                subset.append(item)
+                nsubst += 1
+
+        _dump (g_tmpfile)
+
+        if _test():
+    	    _dump (g_args.outfile)
+    	    nsubst_total += nsubst
+    	    _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+    		 "".format(gran, tests_performed, superset // gran, nsubst), True)
+
+        else:
+	    _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+	    	 "".format(gran, tests_performed, superset // gran), True)
+	    substlist.substs = cpy_substs
+	    if with_vars:
+	        for name in g_smtformula.scopes.declfun_cmds:
+	    	assert (g_smtformula.find_fun(
+	    	    name, scope = g_smtformula.scopes))
+	    	if name not in cpy_declfun_cmds:
+	    	    g_smtformula.delete_fun(name)
+	    g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+            
+
+
+
+
         if randomized:
             subsets = [set(random.sample(superset, gran)) for s in range(0, len(superset), gran)]
         else:
             subsets = [set(list(superset)[s:s+gran]) for s in range (0, len(superset), gran)]
         
-        tests_performed = 0
         for subset in subsets:
             if g_args.roundtime:
                 if time.time() - start_time > g_args.roundtime:
                     _log (2, "[!!] test round timeout: skipping to next granularity")
                     break
 
-            tests_performed += 1
-            nsubst = 0
-            cpy_substs = substlist.substs.copy()
-            cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
-            complement = set(superset) - set(subset)
-            for item in complement:
-                if not item.is_subst():
-                    item.subst (subst_fun(item))
-                    nsubst += 1
-            if nsubst == 0:
-                continue
-
-            _dump (g_tmpfile)
-
-            if _test():
-                _dump (g_args.outfile)
-                nsubst_total += nsubst
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
-                         "".format(gran, tests_performed, len(subsets), nsubst), True)
-                superset = subset
-            else:
-                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
-                         "".format(gran, tests_performed, len(subsets)), True)
-                substlist.substs = cpy_substs
-                if with_vars:
-                    for name in g_smtformula.scopes.declfun_cmds:
-                        assert (g_smtformula.find_fun(
-                            name, scope = g_smtformula.scopes))
-                        if name not in cpy_declfun_cmds:
-                            g_smtformula.delete_fun(name)
-                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
 
             nsubst = 0
             cpy_substs = substlist.substs.copy()
