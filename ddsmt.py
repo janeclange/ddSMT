@@ -613,6 +613,12 @@ def coarse_hdd ():
                terms, g_args.randomized, 
                "  substitute (or term false) with term")
 
+            nsubst += _substitute_terms_hdd (
+                    lambda x: x.children[-1].get_subst(),
+                    lambda x: x.children,
+                    terms, g_args.randomized, 
+                    "  substitute internal nodes with child term")
+
             if sf.is_bv_logic():
                 nsubst += _substitute_terms_hdd (
                         lambda x: sf.bvZeroConstNode(x.sort),
@@ -715,12 +721,6 @@ def coarse_hdd ():
                     terms, g_args.randomized,
                     "  substitute ITE with right child")
 
-            nsubst += _substitute_terms_hdd (
-                    lambda x: x.children[-1].get_subst(),
-                    lambda x: x.children,
-                    terms, g_args.randomized, 
-                    "  substitute internal nodes with child term")
-
             nsubst_round += nsubst
             nterms_subst += nsubst
             for node in terms:
@@ -728,10 +728,8 @@ def coarse_hdd ():
                     temp_terms.extend([c.get_subst() for c in node.get_subst().children])
             
             terms = temp_terms
-                
             level += 1
 
-        print (nsubst_round)
         nsubst_total += nsubst_round
     _log (1)
     _log (1, "total testing time: {0: .2f}".format(g_testtime))
