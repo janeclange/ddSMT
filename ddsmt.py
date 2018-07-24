@@ -3,6 +3,7 @@
 # ddSMT: A delta debugger for SMT benchmarks in SMT-Lib v2 format.
 # Copyright (C) 2013-2018, Aina Niemetz.
 # Copyright (C) 2016-2017, Mathias Preiner.
+# Copyright (C) 2018, Jane Lange.
 #
 # This file is part of ddSMT.
 #
@@ -114,12 +115,14 @@ def _dump (filename = None, root = None):
 def _run (is_golden = False):
     global g_args, g_golden_runtime, g_current_runtime
     try:
-        if g_args.timeout_absolute:
-            cmd = DDSMTCmd (g_args.cmd, g_args.timeout, _log)
+        if not g_args.timeout:
+            cmd = DDSMTCmd (g_args.cmd, g_golden_runtime, _log)
+        elif g_args.timeout_relative:
+            cmd = DDSMTCmd (g_args.cmd, g_args.timeout + g_golden_runtime, _log)
         elif g_args.timeout_dynamic:
             cmd = DDSMTCmd (g_args.cmd, g_args.timeout + g_current_runtime, _log)
         else:
-            cmd = DDSMTCmd (g_args.cmd, g_args.timeout + g_golden_runtime, _log)
+            cmd = DDSMTCmd (g_args.cmd, g_args.timeout, _log)
         (out, err) = cmd.run_cmd(is_golden)
         return (cmd.rcode, out, err)
     except OSError as e:
@@ -145,11 +148,10 @@ def _filter_scopes (filter_fun, bfs, root = None):
 
        If bfs is True, nodes are visited in a breadth-first search instead.
 
-       :filter_fun:  Boolean function that returns True if a node should be added.
-       :roots:       List of nodes from which to begin searching.
-       :bfs:         Bool indicating whether to use breadth-first search.
-       :return:      List of scope nodes that fit the filtering condition.
-
+       :filter_fun: Boolean function that returns True if a node should be added.
+       :roots:      List of nodes from which to begin searching.
+       :bfs:        Bool indicating whether to use breadth-first search.
+       :return:     List of scope nodes that fit the filtering condition.
     """
     global g_smtformula
     assert (g_smtformula)
@@ -176,9 +178,9 @@ def _filter_cmds (filter_fun, bfs):
        If bfs is True, scopes will be collected by breadth-first search instead of 
        depth-first.
 
-       :filter_fun:  Boolean function that returns True if a node should be added.
-       :bfs:         Bool indicating whether to use breadth-first search.
-       :return:      List of command nodes that fit the filtering condition.
+       :filter_fun: Boolean function that returns True if a node should be added.
+       :bfs:        Bool indicating whether to use breadth-first search.
+       :return:     List of command nodes that fit the filtering condition.
     """
     global g_smtformula
     assert (g_smtformula)
@@ -203,12 +205,11 @@ def _filter_terms (filter_fun, bfs, roots):
 
        If bfs is True, nodes are visited in a breadth-first search instead.
 
-       :filter_fun:  Boolean function that returns True if a node should be added.
-       :roots:       List of nodes from which to begin searching.
-       :bfs:         Bool indicating whether to use breadth-first search.
-       :return:      List of term nodes that fit the filtering condition.
-       """
-
+       :filter_fun: Boolean function that returns True if a node should be added.
+       :roots:      List of nodes from which to begin searching.
+       :bfs:        Bool indicating whether to use breadth-first search.
+       :return:     List of term nodes that fit the filtering condition.
+    """
     nodes = []
     to_visit = roots
     visited = {}
@@ -245,9 +246,8 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
        :randomized: Bool indicating whether to randomize subset selection.
        :with_vars:  Bool indicating whether the substitution creates new variables. 
        :return:     Total number of nodes substituted.
-       """
+    """
 
-    superset = deque(superset)
     global g_smtformula, g_current_runtime
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
@@ -311,8 +311,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 if time.time() - start_time > g_args.roundtime:
                     _log (2, "[!!] test round timeout: skipping to next granularity")
                     break
-
-
+            tests_performed += 1
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
@@ -410,14 +409,14 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
        subst_fun and filtering condition filter_fun. Terms descend from a given 
        command list cmds and are collected in the order indicated by the bfs parameter.
 
-       :subst_fun:   Function used to determine node substitutions.
-       :filter_fun:  Function used to select terms to substitute.
-       :cmds:        List of commands to substitute terms from.
-       :bfs:         Bool indicating whether to collect nodes in breadth-first order.
-       :randomized:  Bool indicating whether to randomize subset selection.
-       :msg:         String to write to the log.
-       :with_vars:   Bool indicating whether the substitution creates new variables. 
-       :return:      Total number of nodes substituted. 
+       :subst_fun:  Function used to determine node substitutions.
+       :filter_fun: Function used to select terms to substitute.
+       :cmds:       List of commands to substitute terms from.
+       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
+       :randomized: Bool indicating whether to randomize subset selection.
+       :msg:        String to write to the log.
+       :with_vars:  Bool indicating whether the substitution creates new variables. 
+       :return:     Total number of nodes substituted. 
     """
     _log (2)
     _log (2, msg if msg else "substitute TERMS:")
@@ -781,20 +780,19 @@ if __name__ == "__main__":
         aparser.add_argument ("-b", action="store_true", dest="bfs",\
                               default=False, help="search for terms in breadth-first order ")
         aparser.add_argument ("-t", dest="timeout", metavar="val",\
-                              default=0, type=float, \
+                              default=None, type=float, \
                               help="absolute: timeout for test runs in seconds " \
                                    "relative: timeout is [val] seconds longer than golden runtime" \
-                                   "dynamic: timeout is [val] seconds longer than most recent successful test"
-                                   "(default: 0, relative)")
+                                   "dynamic: timeout is [val] seconds longer than most recent successful test"\
+                                   "(default: absolute. When timeout is unspecified, default is golden runtime.)")
         timeout_group = aparser.add_mutually_exclusive_group()
-        timeout_group.add_argument ("--abs", action="store_true", dest="timeout_absolute",\
-                              default=False, help="timeouts are absolute rather than "\
-                                   "relative to test time of input file")
+        timeout_group.add_argument ("--rel", action="store_true", dest="timeout_relative",\
+                              default=False, help="timeouts are relative to test time of input file")
         timeout_group.add_argument ("--dyn", action="store_true", dest="timeout_dynamic",\
                               default=False, help="timeouts are relative to the runtime of the "\
                                    "most recent successful test")
         aparser.add_argument ("--round", dest="roundtime", metavar = "val", default=None,
-                              type=float, help="approximate time limit for testing round in seconds")
+                              type=float, help="approximate time limit for testing rounds in seconds")
         aparser.add_argument ("-v", action="count", default=0,
                               dest="verbosity", help="increase verbosity")
         aparser.add_argument ("-o", dest="cmpoutput",
