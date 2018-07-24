@@ -290,11 +290,12 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
+    min_gran = len(superset) * 0.1
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
     
-    while gran > 0:
+    while gran > min_gran:
         for i in range ((len(s) + gran - 1) // gran):
             nsubst = 0
             cpy_substs = substlist.substs.copy()
@@ -1135,10 +1136,8 @@ if __name__ == "__main__":
             _log (1, "golden err: {}".format(g_args.cmpoutput))
         _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
 
-        ddsmt_main ()
-
-        coarse_hdd ()
         #ddsmt_main()
+        coarse_hdd ()
         ofilesize = os.path.getsize(g_args.outfile)
 
         _log (1)
