@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./cvc4 $1 |& grep "SimpSolver.cc:170"
+timeout 2s ./cvc4 $1 |& grep "SimpSolver.cc:170"
