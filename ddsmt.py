@@ -133,7 +133,7 @@ def _test ():
     global g_args, g_ntests, g_testtime
     g_ntests += 1
     start = time.time()
-    (exitcode, err) = _run()
+    (exitcode, out, err) = _run()
     g_testtime += time.time() - start
     return exitcode == g_golden_exit and \
         (g_args.cmpoutput in err.decode() or g_args.cmpoutput in out.decode())
@@ -254,42 +254,49 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     nsubst_total = 0
-    superset = deque(superset) 
-    gran = (len(superset) + 1) // 2
+    s = deque(superset) 
+    gran = (len(s) + 1) // 2
     
     while gran > 0:
-        for i in range ((len(superset) + gran - 1) // gran):
+        for i in range ((len(s) + gran - 1) // gran):
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+            subset = []
+            if len(s) == 0:
+                return nsubst_total
             for j in range (gran):
+                if len(s) == 0:
+                    break
+                item = s.popleft()
                 if not item.is_subst():
-                    item = superset.popleft()
                     item.subst (subst_fun(item))
+                    subset.append(item)
                     nsubst += 1
+                else: 
+                    s.append(item)
             if nsubst == 0:
                 continue
                 
-	    _dump (g_tmpfile)
-	    start = time.time()
-	    if _test():
-	        g_current_runtime = time.time() - start
-	        _dump (g_args.outfile)
-	        nsubst_total += nsubst
-	        _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
-	    	     "".format(gran, tests_performed, len(subsets), nsubst), True)
-	        superset = list(set(superset) - set(subset))
-	    else:
-	        _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
-	    	     "".format(gran, tests_performed, len(subsets)), True)
-	        substlist.substs = cpy_substs
-	        if with_vars:
-	    	for name in g_smtformula.scopes.declfun_cmds:
-	    	    assert (g_smtformula.find_fun(
-	    		name, scope = g_smtformula.scopes))
-	    	    if name not in cpy_declfun_cmds:
-	    		g_smtformula.delete_fun(name)
-	        g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+            _dump (g_tmpfile)
+            start = time.time()
+            if _test():
+                g_current_runtime = time.time() - start
+                _dump (g_args.outfile)
+                nsubst_total += nsubst
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+            	     "".format(gran, i, (len(superset)+gran-1)//gran, nsubst), True)
+            else:
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+            	     "".format(gran, i, (len(superset)+gran-1)//gran), True)
+                substlist.substs = cpy_substs
+                if with_vars:
+                    for name in g_smtformula.scopes.declfun_cmds:
+                        assert (g_smtformula.find_fun(name, scope = g_smtformula.scopes))
+                        if name not in cpy_declfun_cmds:
+                            g_smtformula.delete_fun(name)
+                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+                s.extend(subset)
         gran = gran // 2
     return nsubst_total
 
