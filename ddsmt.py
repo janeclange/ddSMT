@@ -291,6 +291,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     min_gran = len(superset) * 0.1
+    #min_gran = 1
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
@@ -491,7 +492,6 @@ def coarse_hdd ():
         nrounds += 1 
         nsubst_round = 0
         level = 0
-        terms = []
         
         if nrounds > 1: #pass to eliminate definitions of functions that aren't called 
             _log(1, "removing redundant definitions and declarations")
@@ -505,6 +505,7 @@ def coarse_hdd ():
             ncmds_subst += nsubst_round
             _log(1, "removed {} commands".format(nsubst_round))
 
+        terms = []
         while scopes:
             _log(1, "scopes and commands at level {}:".format(level))
             temp_scopes = []
@@ -578,12 +579,6 @@ def coarse_hdd ():
                     x.children[1].get_subst().is_false_const()),
                    terms, g_args.randomized, 
                    "  substitute (or term false) with term")
-
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[-1].get_subst(),
-                        lambda x: x.children,
-                        terms, g_args.randomized, 
-                        "  substitute internal nodes with child term")
 
                 if sf.is_bv_logic():
                     nsubst += _substitute_terms_hdd (
@@ -686,6 +681,12 @@ def coarse_hdd ():
                         lambda x: x.is_ite(),
                         terms, g_args.randomized,
                         "  substitute ITE with right child")
+                nsubst += _substitute_terms_hdd (
+                        lambda x: x.children[-1].get_subst(),
+                        lambda x: x.children,
+                        terms, g_args.randomized, 
+                        "  substitute internal nodes with child term")
+
  
                 nsubst_round += nsubst
                 nterms_subst += nsubst
