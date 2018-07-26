@@ -256,9 +256,11 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
-    
+ 
     while gran > 0:
         for i in range ((len(s) + gran - 1) // gran):
+            if randomized:
+                random.shuffle(s)
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
