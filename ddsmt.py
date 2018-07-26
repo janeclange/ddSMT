@@ -32,6 +32,7 @@ from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
 from parser.ddsmtparser import SMTNode, SMTFunAppNode, DDSMTParser, DDSMTParseException
 from collections import deque 
+from math import sqrt
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
@@ -263,7 +264,7 @@ def _filter_terms (filter_fun, bfs, roots):
         #    continue
         if filter_fun(cur.get_subst()):
             nodes.append(cur)
-        if cur.children:
+        if cur.get_subst().children:
             to_visit.extend(cur.children)
     return nodes
 
@@ -290,14 +291,16 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
-    min_gran = len(superset) * 0.1
-    #min_gran = 1
+    min_gran = 0.1 * sqrt(len(superset))
+    #min_gran = 0
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
     
     while gran > min_gran:
         for i in range ((len(s) + gran - 1) // gran):
+            if randomized:
+                random.shuffle(s)
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
@@ -321,7 +324,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
             start = time.time()
             if _test():
                 g_current_runtime = time.time() - start
-                _dump (g_args.outfile)
+                #_dump (g_args.outfile)
                 nsubst_total += nsubst
                 _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
             	     "".format(gran, i, (len(superset)+gran-1)//gran, nsubst), True)
@@ -475,6 +478,22 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
     _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
+def reduce_degree (terms, randomized, msg = None):
+    index = 0
+    nsubst_total = 0
+    ntests_prev = g_ntests
+    _log (2)
+    _log (2, msg if msg else "substitute TERMS:")
+    while terms: 
+        terms = _filter_terms_hdd (lambda x: len(x.children) > index, terms)
+        to_sub = _filter_terms_hdd (lambda x: not x.children[index].get_subst().is_const(), terms)
+        nsubst_total +=  _substitute (lambda x: x.children[index].get_subst(), g_smtformula.subst_nodes, to_sub, randomized)
+        index += 1
+
+    _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
+    _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
+    return nsubst_total
+
 def coarse_hdd ():
     global g_tmpfile, g_args, g_smtformula
     sf = g_smtformula
@@ -485,14 +504,14 @@ def coarse_hdd ():
     nterms_subst = 0
     nsubst_round = 1
     nrounds = 0
-    maxrounds = 5
+    maxrounds =10 
     
     while nsubst_round and nrounds < maxrounds:
         scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
         nrounds += 1 
         nsubst_round = 0
         level = 0
-        
+        _dump(g_tmpfile)
         if nrounds > 1: #pass to eliminate definitions of functions that aren't called 
             _log(1, "removing redundant definitions and declarations")
             cmds = _filter_cmds (lambda x: not (x.is_definefun() or x.is_declfun() or x.is_declconst()), g_args.bfs) 
@@ -651,11 +670,11 @@ def coarse_hdd ():
                             "  substitute Real terms with fresh variables",
                             True)
 
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[-1].get_subst(),
-                        lambda x: x.is_let(),
-                        terms, g_args.randomized, 
-                        "  substitute LETs with child term")
+                #nsubst += _substitute_terms_hdd (
+                #        lambda x: x.children[-1].get_subst(),
+                #        lambda x: x.is_let(),
+                #        terms, g_args.randomized, 
+                #        "  substitute LETs with child term")
 
                 nsubst += _substitute_terms_hdd (
                         lambda x: None,
@@ -681,11 +700,20 @@ def coarse_hdd ():
                         lambda x: x.is_ite(),
                         terms, g_args.randomized,
                         "  substitute ITE with right child")
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[-1].get_subst(),
-                        lambda x: x.children,
-                        terms, g_args.randomized, 
-                        "  substitute internal nodes with child term")
+
+                nsubst += reduce_degree (terms, g_args.randomized,
+                        "  substitute internal nodes with child")
+
+                #nsubst += _substitute_terms_hdd (
+                #        lambda x: x.children[-1].get_subst(),
+                #        lambda x: x.children,
+                #        terms, g_args.randomized, 
+                #        "  substitute internal nodes with rightmost child")
+                #nsubst += _substitute_terms_hdd (
+                #        lambda x: x.children[0].get_subst(),
+                #        lambda x: x.children,
+                #        terms, g_args.randomized, 
+                #        "  substitute internal nodes with leftmost child")
 
  
                 nsubst_round += nsubst
@@ -697,6 +725,7 @@ def coarse_hdd ():
             terms = temp_terms
             level += 1
         print (nsubst_round)
+        _dump (g_args.outfile)
         nsubst_total += nsubst_round
 
     _log (1)
