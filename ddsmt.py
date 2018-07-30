@@ -291,7 +291,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
-    min_gran = 0.1 * sqrt(len(superset))
+    min_gran = 0.1 * len(superset)
     #min_gran = 0
     nsubst_total = 0
     s = deque(superset) 
@@ -484,11 +484,17 @@ def reduce_degree (terms, randomized, msg = None):
     ntests_prev = g_ntests
     _log (2)
     _log (2, msg if msg else "substitute TERMS:")
-    while terms: 
-        terms = _filter_terms_hdd (lambda x: len(x.children) > index, terms)
-        to_sub = _filter_terms_hdd (lambda x: not x.children[index].get_subst().is_const(), terms)
-        nsubst_total +=  _substitute (lambda x: x.children[index].get_subst(), g_smtformula.subst_nodes, to_sub, randomized)
-        index += 1
+    nsubst_round = 1
+    while nsubst_round:
+        nsubst_round = 0
+        cpy_terms = terms
+        while terms: 
+            terms = _filter_terms_hdd (lambda x: len(x.children) > index, terms)
+            to_sub = _filter_terms_hdd (lambda x: not x.children[index].get_subst().is_const(), terms)
+            nsubst_round +=  _substitute (lambda x: x.children[index].get_subst(), g_smtformula.subst_nodes, to_sub, randomized)
+            index += 1
+        terms = cpy_terms
+        nsubst_total += nsubst_round
 
     _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
     _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
@@ -577,27 +583,27 @@ def coarse_hdd ():
                     terms, g_args.randomized, 
                 "  substitute Boolean terms with 'true'")
 
-                nsubst += _substitute_terms_hdd (
-                   lambda x: x.children[1].get_subst() \
-                       if x.children[0].get_subst().is_true_const()\
-                       else x.children[0].get_subst(),
-                   lambda x: x.is_and() and \
-                       (x.children[0].get_subst().is_true_const() \
-                    or
-                    x.children[1].get_subst().is_true_const()),
-                   terms, g_args.randomized, 
-                   "  substitute (and term true) with term")
+                #nsubst += _substitute_terms_hdd (
+                #   lambda x: x.children[1].get_subst() \
+                #       if x.children[0].get_subst().is_true_const()\
+                #       else x.children[0].get_subst(),
+                #   lambda x: x.is_and() and \
+                #       (x.children[0].get_subst().is_true_const() \
+                #    or
+                #    x.children[1].get_subst().is_true_const()),
+                #   terms, g_args.randomized, 
+                #   "  substitute (and term true) with term")
 
-                nsubst += _substitute_terms_hdd (
-                   lambda x: x.children[1].get_subst() \
-                       if x.children[0].get_subst().is_false_const()\
-                       else x.children[0].get_subst(),
-                   lambda x: x.is_or() and \
-                       (x.children[0].get_subst().is_false_const() \
-                    or
-                    x.children[1].get_subst().is_false_const()),
-                   terms, g_args.randomized, 
-                   "  substitute (or term false) with term")
+                #nsubst += _substitute_terms_hdd (
+                #   lambda x: x.children[1].get_subst() \
+                #       if x.children[0].get_subst().is_false_const()\
+                #       else x.children[0].get_subst(),
+                #   lambda x: x.is_or() and \
+                #       (x.children[0].get_subst().is_false_const() \
+                #    or
+                #    x.children[1].get_subst().is_false_const()),
+                #   terms, g_args.randomized, 
+                #   "  substitute (or term false) with term")
 
                 if sf.is_bv_logic():
                     nsubst += _substitute_terms_hdd (
@@ -607,27 +613,27 @@ def coarse_hdd ():
                             terms, g_args.randomized, 
                             "  substitute BV terms with '0'")
 
-                    nsubst += _substitute_terms_hdd (
-                           lambda x: x.children[1].get_subst() \
-                               if x.children[0].get_subst().is_false_bvconst()\
-                               else x.children[0].get_subst(),
-                           lambda x: x.is_bvor() and \
-                               (x.children[0].get_subst().is_false_bvconst() \
-                        	or
-                        	x.children[1].get_subst().is_false_bvconst()),
-                           terms, g_args.randomized, 
-                           "  substitute (bvor term false) with term")
+                    #nsubst += _substitute_terms_hdd (
+                    #       lambda x: x.children[1].get_subst() \
+                    #           if x.children[0].get_subst().is_false_bvconst()\
+                    #           else x.children[0].get_subst(),
+                    #       lambda x: x.is_bvor() and \
+                    #           (x.children[0].get_subst().is_false_bvconst() \
+                    #    	or
+                    #    	x.children[1].get_subst().is_false_bvconst()),
+                    #       terms, g_args.randomized, 
+                    #       "  substitute (bvor term false) with term")
 
-                    nsubst += _substitute_terms_hdd (
-                           lambda x: x.children[1].get_subst() \
-                               if x.children[0].get_subst().is_true_bvconst() \
-                               else x.children[0].get_subst(),
-                           lambda x: x.is_and() and \
-                               (x.children[0].get_subst().is_true_bvconst() \
-                        	or
-                        	x.children[1].get_subst().is_true_bvconst()),
-                           terms, g_args.randomized, 
-                           "  substitute (bvand term true) with term")
+                    #nsubst += _substitute_terms_hdd (
+                    #       lambda x: x.children[1].get_subst() \
+                    #           if x.children[0].get_subst().is_true_bvconst() \
+                    #           else x.children[0].get_subst(),
+                    #       lambda x: x.is_and() and \
+                    #           (x.children[0].get_subst().is_true_bvconst() \
+                    #    	or
+                    #    	x.children[1].get_subst().is_true_bvconst()),
+                    #       terms, g_args.randomized, 
+                    #       "  substitute (bvand term true) with term")
 
                     nsubst += _substitute_terms_hdd (
                             lambda x: sf.add_fresh_declfunCmdNode(x.sort),
@@ -682,24 +688,24 @@ def coarse_hdd ():
                         terms, g_args.randomized,
                         "  eliminate redundant variable bindings")
 
-                if sf.is_arr_logic():
-                    nsubst += _substitute_terms_hdd (
-                            lambda x: x.children[0],  # array
-                            lambda x: x.is_write(),
-                            terms, g_args.randomized,
-                            "  substitute STOREs with array child")
+                #if sf.is_arr_logic():
+                    #nsubst += _substitute_terms_hdd (
+                    #        lambda x: x.children[0],  # array
+                    #        lambda x: x.is_write(),
+                    #        terms, g_args.randomized,
+                    #        "  substitute STOREs with array child")
 
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[1],  # left child
-                        lambda x: x.is_ite(),
-                        terms, g_args.randomized,
-                        "  substitute ITE with left child")
+                #nsubst += _substitute_terms_hdd (
+                #        lambda x: x.children[1],  # left child
+                #        lambda x: x.is_ite(),
+                #        terms, g_args.randomized,
+                #        "  substitute ITE with left child")
 
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[2],  # right child
-                        lambda x: x.is_ite(),
-                        terms, g_args.randomized,
-                        "  substitute ITE with right child")
+                #nsubst += _substitute_terms_hdd (
+                #        lambda x: x.children[2],  # right child
+                #        lambda x: x.is_ite(),
+                #        terms, g_args.randomized,
+                #        "  substitute ITE with right child")
 
                 nsubst += reduce_degree (terms, g_args.randomized,
                         "  substitute internal nodes with child")
@@ -720,7 +726,7 @@ def coarse_hdd ():
                 nterms_subst += nsubst
             for node in terms:
                 if node.get_subst():
-                    temp_terms.extend([c.get_subst() for c in node.get_subst().children])
+                    temp_terms.extend(node.get_subst().children)
             
             terms = temp_terms
             level += 1
