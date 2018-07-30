@@ -1166,6 +1166,7 @@ class SMTFormula:
     def __init__ (self):
         self.logic = "none"
         self.scopes = SMTScopeNode ()
+        self.functions = {} # fun name -> definition and applications
         self.cur_scope = self.scopes
         self.subst_scopes = SMTScopeSubstList ()
         self.subst_cmds = SMTCmdSubstList ()
@@ -1408,6 +1409,8 @@ class SMTFormula:
     def add_fun (self, name, sort, sorts, indices, children, scope = None):
         scope = scope if scope else self.scopes
         scope.funs[name] = SMTFunNode (name, sort, sorts, indices, children)
+        if name not in self.functions:
+            self.functions[name] = []
         if name in self.funs_cache:
             self.funs_cache[name].append(scope)
         else:
@@ -1643,7 +1646,10 @@ class SMTFormula:
             else:
                 kind = name
         sort = self.funApp2sort(fun, kind, children)
-        return SMTFunAppNode (fun, kind, sort, children)
+        node = SMTFunAppNode (fun, kind, sort, children)
+        #if fun.name in self.functions:
+        self.functions[fun.name].append(node)
+        return node
 
     def letFeNode (self, kind, children, svars = None):
         assert (kind in (KIND_LET, KIND_FORALL, KIND_EXISTS))
@@ -1705,6 +1711,9 @@ class SMTFormula:
             self.close_scope (cmd.nscopes)
         else:
             cmd = SMTCmdNode (kind, children)
+            if kind == KIND_DECLCONST or kind == KIND_DEFFUN or kind == KIND_DECLFUN:
+            #if isinstance(children[0], SMTFunNode):
+                self.functions[children[0].name].append(cmd)
             self.cur_scope.cmds.append(cmd)
         return cmd
 
