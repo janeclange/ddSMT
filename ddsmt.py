@@ -764,10 +764,6 @@ def run_from_other_program(infile, outfile, cmd, options):
         sys.exit(0)
 
 
-
-
-
-
 if __name__ == "__main__":
     try:
         usage="ddsmt.py [<options>] <infile> <outfile> <cmd> [<cmd options>]"

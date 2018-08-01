@@ -1,22 +1,25 @@
 #! /usr/bin/env python3
 
-
 import multiprocessing as mp
+import sys
+import shutil
 from time import sleep
+
 
 def f(x): 
     return x*x
 
 if __name__ == '__main__': 
-    with mp.Pool(process=4) as pool: 
-        print(pool.map(f, range(10)))
+    pool = mp.Pool(processes=4) 
 
-        for i in pool.imap_unordered(f, range(10)):
-            print(i)
+    for i in pool.map(f, range(10)):
+        outfile = open("outfile-{}".format(i), "w+")
+        outfile.write("{}".format(i))
+        outfile.close()
 
-        res = pool.apply_async(f, [10]) 
-        print(res.get(timeout=1))
+    #res = pool.apply_async(f, [10]) 
+    #outfile.write("{}".format(res.get(timeout=1)))
 
-        res = pool.apply_async(sleep, [10]) 
-        print(res.get(timeout=1)) 
+    #outfile.close()
+
 
