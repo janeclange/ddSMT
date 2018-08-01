@@ -264,8 +264,7 @@ def _substitute (subst_fun, substlist, superset, randomized,
                           g_smtformula.subst_nodes))
     nsubst_total = 0
     gran = len(superset)
-    min_gran = len(superset) // 10 
-    while gran > min_gran:
+    while gran > 0:
         start_time = time.time()
         if randomized:
             subsets = [random.sample(superset, gran) for s in range(
