@@ -6,7 +6,10 @@ import shutil
 from time import sleep
 
 
-def f(x): 
+def f(x, processnum): 
+    outfile = open("outfile-{}".format(i), "w+")
+    outfile.write("{}".format(i))
+    outfile.close()
     return x*x
 
 if __name__ == '__main__': 
