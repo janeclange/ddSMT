@@ -32,6 +32,7 @@ from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
 from parser.ddsmtparser import DDSMTParser, DDSMTParseException
 from collections import deque
+from math import sqrt 
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
