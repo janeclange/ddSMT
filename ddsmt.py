@@ -719,44 +719,6 @@ def ddsmt_main ():
         sys.exit ("[ddsmt] unable to reduce input file")
 
 
-def run_from_other_program(infile, outfile, cmd, options): 
-
-        ifilesize = os.path.getsize(g_args.infile)
-
-        parser = DDSMTParser()
-        g_smtformula = parser.parse(infile)
-
-        _log (2)
-        _log (2, "parser: done")
-        _log (3, "parser: maxrss: {} MiB".format(
-            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1000))
-
-        shutil.copyfile(infile, g_tmpfile)
-        shutil.copy(g_args.cmd[0], g_tmpbin)  # make copy of binary
-        g_args.cmd[0] = g_tmpbin              # use copy for _run
-        g_args.cmd.append(g_tmpfile)
-        _log (1)
-        _log (1, "starting initial run... ")
-        (g_golden_exit, out, g_golden_err) = _run(True)
-        if g_args.cmpoutput == None:
-            g_args.cmpoutput = g_golden_err.decode()
-        _log (1, "golden exit: {}".format(g_golden_exit))
-        if g_args.cmpoutput:
-            _log (1, "golden err: {}".format(g_args.cmpoutput))
-        _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
-
-        ddsmt_main ()
-
-        ofilesize = os.path.getsize(outfile)
-
-        _log (1)
-        _log (1, "input file size:  {} B (100%)".format(ifilesize))
-        _log (1, "output file size: {} B ({:3.2f}%)".format(
-            ofilesize, ofilesize / ifilesize * 100))
-        _cleanup()
-        sys.exit(0)
-
-
 if __name__ == "__main__":
     try:
         usage="ddsmt.py [<options>] <infile> <outfile> <cmd> [<cmd options>]"
