@@ -27,11 +27,11 @@ import resource
 import sys
 import shutil
 import time
-import multiprocessing as mp
 
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
-from parser.ddsmtparser import SMTNode, SMTFunAppNode, DDSMTParser, DDSMTParseException
+from parser.ddsmtparser import SMTNode, SMTFunAppNode
+from parser.ddsmtparser import  DDSMTParser, DDSMTParseException
 from collections import deque 
 from math import sqrt
 
@@ -269,22 +269,6 @@ def _filter_terms (filter_fun, bfs, roots):
             to_visit.extend(cur.children)
     return nodes
 
-def test_branch (subst_fun, substlist, termlist):
-    cpy_substs = substlist.substs.copy()
-    cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
-    for item in termlist: 
-        if not item.is_subst():
-            item.subst (subst_fun(item))
-            subset.append(item)
-            nsubst += 1
-
-    start = time.time()
-    if _test():
-        g_current_runtime = time.time() - start
-        return len(termlist)
-    else: 
-        return 0
-
 def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False):
     """_substitute(subst_fun, substlist, superset, randomized, with_vars)
 
@@ -309,7 +293,6 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     min_gran = 0.1 * sqrt(len(superset))
-    #min_gran = 0
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
@@ -341,7 +324,6 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
             start = time.time()
             if _test():
                 g_current_runtime = time.time() - start
-                #_dump (g_args.outfile)
                 nsubst_total += nsubst
                 _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
             	     "".format(gran, i, (len(superset)+gran-1)//gran, nsubst), True)
@@ -360,23 +342,12 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     return nsubst_total
 
 def _substitute_scopes_hdd (scopes, randomized):
-    
-    global g_smtformula
-    assert (g_smtformula)
-    _log (2)
-    _log (2, "substitute SCOPES:")
-    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_scopes, scopes, randomized)
-    
-    _log (2, "  >> {} scope(s) substituted in total".format(nsubst_total))
-    return nsubst_total
+    """_substitute_scopes_hdd (scopes, randomized)
 
-def _substitute_scopes (bfs, randomized):
-    """_substitute_scopes(bfs, randomized)
+       Attempt to remove scope nodes from a given list by substituting them
+       with None. 
 
-       Attempt to remove scope nodes at each level of the formula by substituting 
-       them with None. 
-
-       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
+       :scopes:     List of scope nodes to attempt to remove.
        :randomized: Bool indicating whether to randomize subset selection for
                     substitution.
        :return:     Total number of nodes substituted. 
@@ -386,38 +357,20 @@ def _substitute_scopes (bfs, randomized):
     _log (2)
     _log (2, "substitute SCOPES:")
     ntests_prev = g_ntests
-    nsubst_total = 0
-    level = 1
-    while True:
-        scopes = _filter_scopes (lambda x: x.level == level and x.is_regular(), bfs)
-        if not scopes:
-            break
-        nsubst_total += _substitute (
-                lambda x: None, g_smtformula.subst_scopes, scopes, randomized)
-        level += 1
+    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_scopes,
+                                scopes, randomized)
+    
     _log (2, "  >> {} scope(s) substituted in total".format(nsubst_total))
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
 def _substitute_cmds_hdd (cmds, randomized):
-    global g_smtformula
-    assert (g_smtformula)
-    _log (2)
-    _log (2, "substitute COMMANDS:")
-    
-    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_cmds, cmds, g_args.randomized)
-    
+    """_substitute_cmds_hdd (cmds, randomized)
 
-    _log (2, "  >> {} command(s) substituted in total".format(nsubst_total))
-    return nsubst_total
+       Attempt to remove command nodes from a given list by substituting them
+       with None. 
 
-def _substitute_cmds (bfs, randomized, filter_fun = None):
-    """_substitute_cmds(filter_fun, bfs, randomized)
-
-       Attempt to remove command nodes as defined by a given filtering function 
-       filter_fun by substituting them with None. 
-
-       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
+       :cmds:       List of command nodes to attempt to remove.
        :randomized: Bool indicating whether to randomize subset selection for
                     substitution.
        :return:     Total number of nodes substituted. 
@@ -427,68 +380,34 @@ def _substitute_cmds (bfs, randomized, filter_fun = None):
     _log (2)
     _log (2, "substitute COMMANDS:")
     ntests_prev = g_ntests
-    filter_fun = filter_fun if filter_fun else \
-            lambda x: not x.is_setlogic() and not x.is_exit()
     nsubst_total = _substitute (lambda x: None, g_smtformula.subst_cmds,
-            _filter_cmds(filter_fun, bfs), randomized)
+                                cmds, g_args.randomized)
+
     _log (2, "  >> {} command(s) substituted in total".format(nsubst_total))
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
-
 def _substitute_terms_hdd (subst_fun, filter_fun, terms, randomized, msg = None,
                        with_vars = False):
-    """_substitute_terms(subst_fun, filter_fun, cmds, bfs, randomized, msg, with_vars)
+    """_substitute_terms_hdd (subst_fun, filter_fun, terms, randomized, msg, 
+        with_vars)
 
-       Attempt to substitute term nodes as defined by given substitution function
-       subst_fun and filtering condition filter_fun. Terms descend from a given 
-       command list cmds and are collected in the order indicated by the bfs parameter.
+       Attempt to substitute term nodes from a given list as defined by given 
+       substitution function subst_fun. 
 
        :subst_fun:  Function used to determine node substitutions.
-       :filter_fun: Function used to select terms to substitute.
-       :cmds:       List of commands to substitute terms from.
-       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
+       :terms:      List of terms to attempt to substitute.
        :randomized: Bool indicating whether to randomize subset selection.
        :msg:        String to write to the log.
-       :with_vars:  Bool indicating whether the substitution creates new variables. 
+       :with_vars:  Bool indicating whether the substitution creates new 
+                    variables. 
        :return:     Total number of nodes substituted. 
     """
     _log (2)
     _log (2, msg if msg else "substitute TERMS:")
     ntests_prev = g_ntests
-    terms =_filter_terms_hdd(filter_fun, terms)
-    nsubst_total = _substitute (subst_fun, g_smtformula.subst_nodes, terms, \
-                    randomized, with_vars)
-
-    _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
-    _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
-    return nsubst_total
-
-def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
-                       with_vars = False):
-    """_substitute_terms(subst_fun, filter_fun, cmds, bfs, randomized, msg, with_vars)
-
-       Attempt to substitute term nodes as defined by given substitution function
-       subst_fun and filtering condition filter_fun. Terms descend from a given 
-       command list cmds and are collected in the order indicated by the bfs parameter.
-
-       :subst_fun:  Function used to determine node substitutions.
-       :filter_fun: Function used to select terms to substitute.
-       :cmds:       List of commands to substitute terms from.
-       :bfs:        Bool indicating whether to collect nodes in breadth-first order.
-       :randomized: Bool indicating whether to randomize subset selection.
-       :msg:        String to write to the log.
-       :with_vars:  Bool indicating whether the substitution creates new variables. 
-       :return:     Total number of nodes substituted. 
-    """
-    _log (2)
-    _log (2, msg if msg else "substitute TERMS:")
-    ntests_prev = g_ntests
-    terms = _filter_terms (filter_fun, bfs, [t for term_list in
-                [c.children if c.is_getvalue() else [c.children[-1]] \
-                        for c in cmds] for t in term_list])
-
-    nsubst_total = _substitute (subst_fun, g_smtformula.subst_nodes, terms, \
+    terms =_filter_terms_hdd (filter_fun, terms)
+    nsubst_total = _substitute (subst_fun, g_smtformula.subst_nodes, terms, 
                     randomized, with_vars)
 
     _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
@@ -496,28 +415,45 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
     return nsubst_total
 
 def reduce_degree (terms, randomized, msg = None):
+    """reduce_degree (terms, randomized, msg)
+
+       Attempt to substitute nodes from a given list with each of their
+       non-constant children. 
+
+       :terms:      List of terms to attempt to substitute.
+       :randomized: Bool indicating whether to randomize subset selection.
+       :msg:        String to write to the log.
+       :return:     Total number of nodes substituted. 
+    """
     index = 0
     nsubst_total = 0
     ntests_prev = g_ntests
     _log (2)
     _log (2, msg if msg else "substitute TERMS:")
-    nsubst_round = 1
-    while nsubst_round:
-        nsubst_round = 0
-        cpy_terms = terms
-        while terms: 
-            terms = _filter_terms_hdd (lambda x: len(x.children) > index, terms)
-            to_sub = _filter_terms_hdd (lambda x: not x.children[index].get_subst().is_const(), terms)
-            nsubst_round +=  _substitute (lambda x: x.children[index].get_subst(), g_smtformula.subst_nodes, to_sub, randomized)
-            index += 1
-        terms = cpy_terms
-        nsubst_total += nsubst_round
+    while terms:
+        terms = _filter_terms_hdd (lambda x: len(x.children) > index, terms)
+        to_sub = _filter_terms_hdd (lambda x:
+                 not x.children[index].get_subst().is_const(), terms)
+        nsubst_total +=  _substitute (lambda x: x.children[index].get_subst(),
+                         g_smtformula.subst_nodes, to_sub, randomized)
+        index += 1
 
     _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
     _log (3, "    >> {} test(s)".format(g_ntests - ntests_prev))
     return nsubst_total
 
 def coarse_hdd ():
+    """coarse_hdd ()
+
+       Walk from roots to leaves in 3 phases, attempting to make substitutions
+       at each level. First phase removes scope nodes and commands within
+       each scope. Second phase replaces terms with constants and free 
+       variables, then replaces the remaining internal nodes with child nodes.
+       Third phase removes definitions and declarations of functions with no 
+       applications in the formula. 
+
+       These phases are repeated until a fixed point is reached.
+    """
     global g_tmpfile, g_args, g_smtformula
     sf = g_smtformula
 
@@ -527,7 +463,7 @@ def coarse_hdd ():
     nterms_subst = 0
     nsubst_round = 1
     nrounds = 0
-    maxrounds =10 
+    maxrounds = 10 
     
     while nsubst_round and nrounds < maxrounds:
         scopes = _filter_scopes (lambda x: x.level == 0 and x.is_regular(), g_args.bfs)
@@ -581,7 +517,6 @@ def coarse_hdd ():
         level = 0
         while terms:
             _log(1, "terms at level {}:".format(level))
-            temp_terms = []
             nsubst = 1
             while nsubst: 
                 nsubst = 0
@@ -712,35 +647,13 @@ def coarse_hdd ():
                            terms, g_args.randomized,
                            "  substitute STOREs with array child")
 
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[1],  # left child
-                        lambda x: x.is_ite(),
-                        terms, g_args.randomized,
-                        "  substitute ITE with left child")
-
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[2],  # right child
-                        lambda x: x.is_ite(),
-                        terms, g_args.randomized,
-                        "  substitute ITE with right child")
-
                 nsubst += reduce_degree (terms, g_args.randomized,
                         "  substitute internal nodes with child")
-
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[-1].get_subst(),
-                        lambda x: x.children,
-                        terms, g_args.randomized, 
-                        "  substitute internal nodes with rightmost child")
-                nsubst += _substitute_terms_hdd (
-                        lambda x: x.children[0].get_subst(),
-                        lambda x: x.children,
-                        terms, g_args.randomized, 
-                        "  substitute internal nodes with leftmost child")
-
  
                 nsubst_round += nsubst
                 nterms_subst += nsubst
+
+            temp_terms = []
             for node in terms:
                 if node.get_subst():
                     temp_terms.extend([c.get_subst() for c in node.get_subst().children])
@@ -760,7 +673,6 @@ def coarse_hdd ():
     _log (1, "scopes substituted: {}".format(nscopes_subst))
     _log (1, "cmds   substituted: {}".format(ncmds_subst))
     _log (1, "terms  substituted: {}".format(nterms_subst))
-    return nsubst_total
     
 
 if __name__ == "__main__":
