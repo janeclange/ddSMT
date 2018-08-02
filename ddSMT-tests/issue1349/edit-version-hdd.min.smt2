@@ -1,0 +1,10 @@
+(declare-fun _substvar_2_ () Int)
+(declare-fun f152@0 () Bool)
+(assert (let ((X1 f152@0)) (=> X1 (<= 0 _substvar_2_))))
+(check-sat)
+(declare-fun %fresh_actlit_2 () Bool)
+(assert false)
+(push 1)
+(assert %fresh_actlit_2)
+(check-sat)
+

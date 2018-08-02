@@ -22,25 +22,30 @@
 #
 
 import sys
-
+import os
 from subprocess import Popen, PIPE, TimeoutExpired
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
 
 
-command_line = sys.argv
-first_outfile_index = 1
-while len(command_line[first_outfile_index]) < 1 or command_line[first_outfile_index][0] != ".":
-    first_outfile_index += 1
-first_outfile_index += 1
-second_outfile_index = first_outfile_index + 1
-    
-command_line[0] = "/barrett/scratch/jlange20/ddSMT/ddsmt.py"
+if __name__ == "__main__":
 
-ddsmt = Popen(command_line)
-command_line[0] = "/barrett/scratch/jlange20/ddSMT/hddsmt.py"
-command_line[first_outfile_index] = "hddmin.min.smt2"
-hddsmt = Popen(command_line)
-ddsmt.wait()
-hddsmt.wait()
+    command_line = sys.argv
+    outfile_index = 1
+    while len(command_line[outfile_index]) < 1 or command_line[outfile_index][0] != ".":
+        outfile_index += 1
+    outfile_index += 1
+        
+    #command_line[0] = "/barrett/scratch/jlange20/ddSMT/ddsmt.py"
+    path = os.path.dirname(__file__)
+    command_line[0] = path + "/ddsmt.py"
+    ddsmt = Popen(command_line)
+
+    command_line[0] = path + "/hddsmt.py"
+    command_line[outfile_index] = command_line[outfile_index][:-9] + "-hdd.min.smt2"
+    hddsmt = Popen(command_line)
+
+    ddsmt.wait()
+    hddsmt.wait()
+
