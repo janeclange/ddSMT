@@ -270,12 +270,13 @@ def _filter_terms (filter_fun, bfs, roots):
     return nodes
 
 def test_branch (subst_fun, substlist, termlist):
-    cpy_substs = substlist.substs.copy()
-    cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+    #cpy_substs = substlist.substs.copy()
+    #cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+    cpy_formula = g_smtformula.copy()
+    nsubst = 0
     for item in termlist: 
         if not item.is_subst():
-            item.subst (subst_fun(item))
-            subset.append(item)
+            cpy_formula.subst (item, subst_fun(item))
             nsubst += 1
 
     start = time.time()
