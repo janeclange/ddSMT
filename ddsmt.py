@@ -28,6 +28,7 @@ import sys
 import shutil
 import time
 import copy
+import multiprocessing as mp
 
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
@@ -46,7 +47,7 @@ g_ntests = 0
 g_testtime = 0
 g_args = None
 g_smtformula = []
-g_tmpfile = "/tmp/tmp-" + str(os.getpid()) + ".smt2"
+g_tmpfile = "/tmp/tmp-" + str(os.getpid()) + "-"
 g_tmpbin = "/tmp/ddsmt-bin-" + str(os.getpid())
 
 
@@ -88,8 +89,9 @@ class DDSMTCmd ():
         return (self.out, self.err)
 
 def _cleanup ():
-    if os.path.exists(g_tmpfile):
-        os.remove(g_tmpfile)
+    for i in range (mp.cpu_count()):
+        if os.path.exists(g_tmpfile + str(i) + ".smt2"):
+            os.remove(g_tmpfile + str(i) + ".smt2")
     if os.path.exists(g_tmpbin):
         os.remove(g_tmpbin)
 
@@ -119,13 +121,13 @@ def _run (is_golden = False):
     global g_args, g_golden_runtime, g_current_runtime
     try:
         if not g_args.timeout:
-            cmd = DDSMTCmd(g_args.cmd, g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[0], g_golden_runtime, _log)
         elif g_args.timeout_relative:
-            cmd = DDSMTCmd(g_args.cmd, g_args.timeout + g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout + g_golden_runtime, _log)
         elif g_args.timeout_dynamic:
-            cmd = DDSMTCmd(g_args.cmd, g_args.timeout + g_current_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout + g_current_runtime, _log)
         else:
-            cmd = DDSMTCmd(g_args.cmd, g_args.timeout, _log)
+            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout, _log)
         (out, err) = cmd.run_cmd(is_golden)
         return (cmd.rcode, out, err)
     except OSError as e:
@@ -285,6 +287,7 @@ def _substitute (subst_fun, substlist, superset, randomized,
             nsubst = 0
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula[0].scopes.declfun_cmds.copy()
+            g_smtformula.append(copy.copy(g_smtformula[0]))
             for item in subset:
                 if not item.is_subst():
                     item.subst (subst_fun(item))
@@ -292,8 +295,7 @@ def _substitute (subst_fun, substlist, superset, randomized,
             if nsubst == 0:
                 continue
 
-            g_smtformula.append(copy.copy(g_smtformula[0]))
-            _dump (g_tmpfile, g_smtformula[1])
+            _dump (g_tmpfile + "0.smt2")
             start = time.time()
             if _test():
                 g_current_runtime = time.time() - start
@@ -728,45 +730,6 @@ def ddsmt_main ():
     if nsubst_total == 0:
         sys.exit ("[ddsmt] unable to reduce input file")
 
-
-def run_from_other_program(infile, outfile, cmd, options): 
-
-        ifilesize = os.path.getsize(g_args.infile)
-
-        parser = DDSMTParser()
-        g_smtformula.append(parser.parse(infile))
-
-        _log (2)
-        _log (2, "parser: done")
-        _log (3, "parser: maxrss: {} MiB".format(
-            resource.getrusage(resource.RUSAGE_SELF).ru_maxrss/1000))
-
-        shutil.copyfile(infile, g_tmpfile)
-        shutil.copy(g_args.cmd[0], g_tmpbin)  # make copy of binary
-        g_args.cmd[0] = g_tmpbin              # use copy for _run
-        g_args.cmd.append(g_tmpfile)
-        _log (1)
-        _log (1, "starting initial run... ")
-        (g_golden_exit, out, g_golden_err) = _run(True)
-        if g_args.cmpoutput == None:
-            g_args.cmpoutput = g_golden_err.decode()
-        _log (1, "golden exit: {}".format(g_golden_exit))
-        if g_args.cmpoutput:
-            _log (1, "golden err: {}".format(g_args.cmpoutput))
-        _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
-
-        ddsmt_main ()
-
-        ofilesize = os.path.getsize(outfile)
-
-        _log (1)
-        _log (1, "input file size:  {} B (100%)".format(ifilesize))
-        _log (1, "output file size: {} B ({:3.2f}%)".format(
-            ofilesize, ofilesize / ifilesize * 100))
-        _cleanup()
-        sys.exit(0)
-
-
 if __name__ == "__main__":
     try:
         usage="ddsmt.py [<options>] <infile> <outfile> <cmd> [<cmd options>]"
@@ -869,7 +832,14 @@ if __name__ == "__main__":
         shutil.copyfile(g_args.infile, g_tmpfile)
         shutil.copy(g_args.cmd[0], g_tmpbin)  # make copy of binary
         g_args.cmd[0] = g_tmpbin              # use copy for _run
-        g_args.cmd.append(g_tmpfile)
+        g_args.cmd = [g_args.cmd]
+
+        for i in range (mp.cpu_count()-1): 
+            g_args.cmd.append(copy.copy(g_args.cmd[0]))
+        for i in range (mp.cpu_count()): 
+            g_args.cmd[i].append(g_tmpfile + str(i) + ".smt2")
+        print(g_args.cmd[0])
+
         _log (1)
         _log (1, "starting initial run... ")
         (g_golden_exit, out, g_golden_err) = _run(True)
