@@ -88,6 +88,40 @@ class DDSMTCmd ():
         self.rcode = self.process.returncode
         return (self.out, self.err)
 
+class TestCase ():
+    def __init__(self, number, termset, subst_fun):
+        self.number = number
+        self.termset = termset
+        self.formula = copy.copy(g_smtformula[0])
+        self.function = subst_fun
+
+    def setup (self): 
+        infile = g_tmpfile + str(self.number) + ".smt2"
+        nsubst = 0
+        for item in self.termset: 
+            if not item.is_subst():
+                self.formula.subst(item, self.function(item))    
+                nsubst += 1
+        if nsubst == 0:
+            return 0
+        _dump (infile)
+        return nsubst
+
+    def test (self):
+        nsubst = self.setup ()
+        start = time.time()
+        if _test(self.number):
+            print("passed")
+            g_current_runtime = time.time() - start
+            return nsubst 
+        else:
+            print("not passed") 
+            self.formula = g_smtformula[0]
+            return 0
+
+    def dump (self):
+        _dump (g_args.outfile, self.formula)
+
 def _cleanup ():
     for i in range (mp.cpu_count()):
         if os.path.exists(g_tmpfile + str(i) + ".smt2"):
@@ -117,28 +151,28 @@ def _dump (filename = None, formula = None, root = None):
         raise DDSMTException (str(e))
 
 
-def _run (is_golden = False):
+def _run (index, is_golden = False):
     global g_args, g_golden_runtime, g_current_runtime
     try:
         if not g_args.timeout:
-            cmd = DDSMTCmd(g_args.cmd[0], g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_golden_runtime, _log)
         elif g_args.timeout_relative:
-            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout + g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout + g_golden_runtime, _log)
         elif g_args.timeout_dynamic:
-            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout + g_current_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout + g_current_runtime, _log)
         else:
-            cmd = DDSMTCmd(g_args.cmd[0], g_args.timeout, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout, _log)
         (out, err) = cmd.run_cmd(is_golden)
         return (cmd.rcode, out, err)
     except OSError as e:
-        raise DDSMTException("{}: {}".format(str(e), g_cmd[0]))
+        raise DDSMTException("{}: {}".format(str(e), g_args.cmd[index][0]))
 
 
-def _test ():
+def _test (index):
     global g_args, g_ntests, g_testtime
     g_ntests += 1
     start = time.time()
-    (exitcode, out, err) = _run()
+    (exitcode, out, err) = _run(index)
     g_testtime += time.time() - start
     return exitcode == g_golden_exit and \
         (g_args.cmpoutput in err.decode() or g_args.cmpoutput in out.decode())
@@ -243,7 +277,7 @@ def _filter_terms (filter_fun, bfs, roots):
 
 def _substitute (subst_fun, substlist, superset, randomized,  
                  with_vars = False):
-    """_substitute(subst_fun, substlist, superset, randomized, with_vars)
+    """_substitute (subst_fun, substlist, superset, randomized, with_vars)
 
        Attempt to substitute nodes in contiguous subsets as defined by given 
        substitution function subst_fun. Remove substituted nodes from superset 
@@ -278,33 +312,37 @@ def _substitute (subst_fun, substlist, superset, randomized,
             subsets = [superset[s:s+gran] for s in range (
                        0, len(superset), gran)]
         tests_performed = 0
-        for subset in subsets:
+        for index in range (0, len(subsets), 2):
             if g_args.roundtime:
                 if time.time() - start_time > g_args.roundtime:
                     _log (2, "[!!] test round timeout: reducing granularity")
                     break
-            tests_performed += 1
-            nsubst = 0
+            tests_performed += 2
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula[0].scopes.declfun_cmds.copy()
-            g_smtformula.append(copy.copy(g_smtformula[0]))
-            for item in subset:
-                if not item.is_subst():
-                    item.subst (subst_fun(item))
-                    nsubst += 1
-            if nsubst == 0:
-                continue
 
-            _dump (g_tmpfile + "0.smt2")
-            start = time.time()
-            if _test():
-                g_current_runtime = time.time() - start
-                _dump (g_args.outfile)
-                nsubst_total += nsubst
+            case1 = TestCase(0, subsets[index], subst_fun) 
+            case2 = TestCase(1, subsets[index], subst_fun)
+            nsubst1 = case1.test()
+            nsubst2 = case2.test()
+
+            if nsubst1 >= nsubst2: 
+                case1.dump()
+                nsubst_total += nsubst1
                 _log (2, "    granularity: {}, subset {} of {}:, " \
                          "substituted: {}".format(gran, tests_performed, 
-                      len(subsets), nsubst), True)
-                superset = list(set(superset) - set(subset))
+                      len(subsets), nsubst1), True)
+                superset = list(set(superset) - set(subsets[index]))
+                g_smtformula[0] = case1.formula
+            elif nsubst2 > nsubst1: 
+                case2.dump()
+                nsubst_total += nsubst2
+                _log (2, "    granularity: {}, subset {} of {}:, " \
+                         "substituted: {}".format(gran, tests_performed, 
+                      len(subsets), nsubst2), True)
+                superset = list(set(superset) - set(subsets[index+1]))
+                g_smtformula[0] = case2.formula
+
             else:
                 _log (2, "    granularity: {}, subset {} of {}:, "\
                          "substituted: 0".format(gran, tests_performed, 
@@ -317,7 +355,6 @@ def _substitute (subst_fun, substlist, superset, randomized,
                         if name not in cpy_declfun_cmds:
                             g_smtformula[0].delete_fun(name)
                 g_smtformula[0].scopes.declfun_cmds = cpy_declfun_cmds
-            del g_smtformula[1]           
         gran = gran // 2
     return nsubst_total
 
@@ -829,7 +866,6 @@ if __name__ == "__main__":
         #sys.exit(0)
         #######
 
-        shutil.copyfile(g_args.infile, g_tmpfile)
         shutil.copy(g_args.cmd[0], g_tmpbin)  # make copy of binary
         g_args.cmd[0] = g_tmpbin              # use copy for _run
         g_args.cmd = [g_args.cmd]
@@ -838,7 +874,8 @@ if __name__ == "__main__":
             g_args.cmd.append(copy.copy(g_args.cmd[0]))
         for i in range (mp.cpu_count()): 
             g_args.cmd[i].append(g_tmpfile + str(i) + ".smt2")
-        print(g_args.cmd[0])
+            shutil.copyfile(g_args.infile, g_tmpfile + str(i) + ".smt2")
+        print(g_args.cmd)
 
         _log (1)
         _log (1, "starting initial run... ")
