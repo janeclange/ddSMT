@@ -88,39 +88,45 @@ class DDSMTCmd ():
         self.rcode = self.process.returncode
         return (self.out, self.err)
 
+
 class TestCase ():
     def __init__(self, number, termset, subst_fun):
         self.number = number
         self.termset = termset
-        self.formula = copy.copy(g_smtformula[0])
+        self.formula = None
         self.function = subst_fun
+        self.filesize = 0
+        self.file = g_tmpfile + str(self.number) + ".smt2"
 
     def setup (self): 
-        infile = g_tmpfile + str(self.number) + ".smt2"
+        self.formula = copy.copy(g_smtformula[0])
         nsubst = 0
         for item in self.termset: 
-            if not item.is_subst():
+            if not self.formula.is_subst(item):
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
             return 0
-        _dump (infile)
+        _dump (self.file)
         return nsubst
 
     def test (self):
         nsubst = self.setup ()
         start = time.time()
         if _test(self.number):
-            print("passed")
+            self.filesize = os.path.getsize(self.file)
+            #print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
             return nsubst 
         else:
-            print("not passed") 
+            self.filesize = os.path.getsize(g_args.infile)
+            #print("not passed + " + str(nsubst)) 
             self.formula = g_smtformula[0]
             return 0
 
     def dump (self):
         _dump (g_args.outfile, self.formula)
+
 
 def _cleanup ():
     for i in range (mp.cpu_count()):
@@ -312,6 +318,7 @@ def _substitute (subst_fun, substlist, superset, randomized,
             subsets = [superset[s:s+gran] for s in range (
                        0, len(superset), gran)]
         tests_performed = 0
+        #print("subsets: " + str(len(subsets)))
         for index in range (0, len(subsets), 2):
             if g_args.roundtime:
                 if time.time() - start_time > g_args.roundtime:
@@ -322,25 +329,28 @@ def _substitute (subst_fun, substlist, superset, randomized,
             cpy_declfun_cmds = g_smtformula[0].scopes.declfun_cmds.copy()
 
             case1 = TestCase(0, subsets[index], subst_fun) 
-            case2 = TestCase(1, subsets[index], subst_fun)
+            if len(subsets) > index + 1: 
+                case2 = TestCase(1, subsets[index + 1], subst_fun)
+            else:
+                case2 = TestCase(1, subsets[index], subst_fun)
             nsubst1 = case1.test()
             nsubst2 = case2.test()
 
-            if nsubst1 >= nsubst2: 
+            if nsubst1 >= nsubst2 and nsubst1 != 0: 
                 case1.dump()
                 nsubst_total += nsubst1
                 _log (2, "    granularity: {}, subset {} of {}:, " \
                          "substituted: {}".format(gran, tests_performed, 
                       len(subsets), nsubst1), True)
-                superset = list(set(superset) - set(subsets[index]))
+                superset = list(set(superset) - set(case1.termset))
                 g_smtformula[0] = case1.formula
-            elif nsubst2 > nsubst1: 
+            elif nsubst2 > nsubst1 and nsubst2 != 0: 
                 case2.dump()
                 nsubst_total += nsubst2
                 _log (2, "    granularity: {}, subset {} of {}:, " \
                          "substituted: {}".format(gran, tests_performed, 
                       len(subsets), nsubst2), True)
-                superset = list(set(superset) - set(subsets[index+1]))
+                superset = list(set(superset) - set(case2.termset))
                 g_smtformula[0] = case2.formula
 
             else:
@@ -879,7 +889,7 @@ if __name__ == "__main__":
 
         _log (1)
         _log (1, "starting initial run... ")
-        (g_golden_exit, out, g_golden_err) = _run(True)
+        (g_golden_exit, out, g_golden_err) = _run(0, True)
         if g_args.cmpoutput == None:
             g_args.cmpoutput = g_golden_err.decode()
         _log (1, "golden exit: {}".format(g_golden_exit))

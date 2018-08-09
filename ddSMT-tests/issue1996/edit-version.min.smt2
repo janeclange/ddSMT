@@ -33,5 +33,6 @@ Submitted by Dejan Jovanovic for SMT-LIB.
 (declare-fun ep () Real)
 (declare-fun muscore2dollarskuscore5 () Real)
 (declare-fun z () Real)
+(assert (not (exists ((ts6uscore0 Real)) (let ((?v_0 (* 2 b)) (?v_1 (- muscore2dollarskuscore5 0.0)) (?v_4 (* duscore2dollarskuscore5 duscore2dollarskuscore5))) (let ((?v_2 (- (* 0.0 0.0) ?v_4)) (?v_3 (+ (* 0.0 0.0) 0.0))) (=> (and (and (and (and (and (and (and (and (and (and (and (=> (and (<= 0 ts6uscore0) (<= ts6uscore0 0.0)) (and (>= (+ (* 0.0 ts6uscore0) 0.0) 0) (<= ts6uscore0 ep))) (>= 0.0 0)) (< 0.0 0)) (>= 0.0 (- b))) (>= 0.0 vdesuscore2dollarskuscore4)) (<= ?v_2 (* ?v_0 ?v_1))) (>= duscore2dollarskuscore5 0)) (<= (- (* v v) (* d d)) (* ?v_0 (- m z)))) (>= d 0)) (> b 0)) (>= A 0)) (>= ep 0)) (or (or (<= ?v_1 (+ (/ ?v_2 ?v_0) (* (+ (/ A b) 1) (+ (* (/ A 2) (* ep ep)) (* ep 0.0))))) (= stateuscore2dollarskuscore3 1)) (<= (- (* ?v_3 ?v_3) ?v_4) 0.0))))))))
 (check-sat)
 (exit)
