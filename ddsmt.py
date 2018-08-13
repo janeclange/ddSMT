@@ -99,29 +99,37 @@ class TestCase ():
         self.file = g_tmpfile + str(self.number) + ".smt2"
 
     def setup (self): 
-        self.formula = copy.copy(g_smtformula[0])
+        #self.formula = g_smtformula[0]
+        self.formula = copy.deepcopy(g_smtformula[0])
+        self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
+        self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
+        self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
         nsubst = 0
         for item in self.termset: 
+            #if self.formula.is_subst(item):
+            #    print("is subst" + str(self.number))
             if not self.formula.is_subst(item):
+            #    print("not subst" + str(self.number))
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
             return 0
-        _dump (self.file)
+        _dump (self.file, self.formula)
         return nsubst
 
     def test (self):
         nsubst = self.setup ()
         start = time.time()
-        if _test(self.number):
+        if nsubst and _test(self.number):
             self.filesize = os.path.getsize(self.file)
-            #print("passed + " + str(nsubst))
+            print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
+            g_smtformula[0] = copy.deepcopy(self.formula)
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)
-            #print("not passed + " + str(nsubst)) 
-            self.formula = g_smtformula[0]
+            print("not passed + " + str(nsubst)) 
+            #self.formula = None
             return 0
 
     def dump (self):
@@ -150,7 +158,8 @@ def _log (verbosity, msg = "", update = False):
 def _dump (filename = None, formula = None, root = None):
     global g_smtformula
     assert (g_smtformula[0])
-    formula = formula if formula else g_smtformula[0]
+    if not formula:
+        formula = g_smtformula[0]
     try:
         formula.dump(filename, root)
     except IOError as e:
@@ -319,12 +328,12 @@ def _substitute (subst_fun, substlist, superset, randomized,
                        0, len(superset), gran)]
         tests_performed = 0
         #print("subsets: " + str(len(subsets)))
-        for index in range (0, len(subsets), 2):
+        for index in range (0, len(subsets), 1):
             if g_args.roundtime:
                 if time.time() - start_time > g_args.roundtime:
                     _log (2, "[!!] test round timeout: reducing granularity")
                     break
-            tests_performed += 2
+            tests_performed += 1
             cpy_substs = substlist.substs.copy()
             cpy_declfun_cmds = g_smtformula[0].scopes.declfun_cmds.copy()
 
@@ -333,27 +342,15 @@ def _substitute (subst_fun, substlist, superset, randomized,
                 case2 = TestCase(1, subsets[index + 1], subst_fun)
             else:
                 case2 = TestCase(1, subsets[index], subst_fun)
+            #if len(subsets) > index + 2: 
+            #    case3 = TestCase(2, subsets[index + 2], subst_fun)
+            #else:
+            #    case3 = TestCase(2, subsets[index], subst_fun)
             nsubst1 = case1.test()
-            nsubst2 = case2.test()
+            #nsubst2 = case2.setup()
+            #nsubst3 = case3.test()
 
-            if nsubst1 >= nsubst2 and nsubst1 != 0: 
-                case1.dump()
-                nsubst_total += nsubst1
-                _log (2, "    granularity: {}, subset {} of {}:, " \
-                         "substituted: {}".format(gran, tests_performed, 
-                      len(subsets), nsubst1), True)
-                superset = list(set(superset) - set(case1.termset))
-                g_smtformula[0] = case1.formula
-            elif nsubst2 > nsubst1 and nsubst2 != 0: 
-                case2.dump()
-                nsubst_total += nsubst2
-                _log (2, "    granularity: {}, subset {} of {}:, " \
-                         "substituted: {}".format(gran, tests_performed, 
-                      len(subsets), nsubst2), True)
-                superset = list(set(superset) - set(case2.termset))
-                g_smtformula[0] = case2.formula
-
-            else:
+            if nsubst1 == 0:
                 _log (2, "    granularity: {}, subset {} of {}:, "\
                          "substituted: 0".format(gran, tests_performed, 
                       len(subsets)), True)
@@ -365,6 +362,50 @@ def _substitute (subst_fun, substlist, superset, randomized,
                         if name not in cpy_declfun_cmds:
                             g_smtformula[0].delete_fun(name)
                 g_smtformula[0].scopes.declfun_cmds = cpy_declfun_cmds
+
+           # elif max (nsubst1, nsubst2) == nsubst2: 
+           #     case2.dump()
+           #     nsubst_total += nsubst2
+           #     _log (2, "    granularity: {}, subset {} of {}:, " \
+           #              "substituted: {}".format(gran, tests_performed, 
+           #           len(subsets), nsubst2), True)
+           #     superset = list(set(superset) - set(case2.termset))
+           #     g_smtformula[0] = case2.formula
+            else: 
+                case1.dump()
+                nsubst_total += nsubst1
+                _log (2, "    granularity: {}, subset {} of {}:, " \
+                         "substituted: {}".format(gran, tests_performed, 
+                      len(subsets), nsubst1), True)
+                superset = list(set(superset) - set(case1.termset))
+                g_smtformula[0] = copy.copy(case1.formula)
+                
+
+            #elif max (nsubst1, nsubst2, nsubst3) == nsubst1: 
+            #    case1.dump()
+            #    nsubst_total += nsubst1
+            #    _log (2, "    granularity: {}, subset {} of {}:, " \
+            #             "substituted: {}".format(gran, tests_performed, 
+            #          len(subsets), nsubst1), True)
+            #    superset = list(set(superset) - set(case1.termset))
+            #    g_smtformula[0] = case1.formula
+            #elif max (nsubst1, nsubst2, nsubst3) == nsubst2: 
+            #    case2.dump()
+            #    nsubst_total += nsubst2
+            #    _log (2, "    granularity: {}, subset {} of {}:, " \
+            #             "substituted: {}".format(gran, tests_performed, 
+            #          len(subsets), nsubst2), True)
+            #    superset = list(set(superset) - set(case2.termset))
+            #    g_smtformula[0] = case2.formula
+            #elif max (nsubst1, nsubst2, nsubst3) == nsubst3: 
+            #    case3.dump()
+            #    nsubst_total += nsubst3
+            #    _log (2, "    granularity: {}, subset {} of {}:, " \
+            #             "substituted: {}".format(gran, tests_performed, 
+            #          len(subsets), nsubst3), True)
+            #    superset = list(set(superset) - set(case3.termset))
+            #    g_smtformula[0] = case3.formula
+
         gran = gran // 2
     return nsubst_total
 
