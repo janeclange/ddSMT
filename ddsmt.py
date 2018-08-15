@@ -101,15 +101,15 @@ class TestCase ():
     def setup (self): 
         #self.formula = g_smtformula[0]
         self.formula = copy.deepcopy(g_smtformula[0])
-        self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
-        self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
-        self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
+        #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
+        #self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
+        #self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
         nsubst = 0
         for item in self.termset: 
-            #if self.formula.is_subst(item):
-            #    print("is subst" + str(self.number))
+            if self.formula.is_subst(item):
+                print("is subst" + str(self.number))
             if not self.formula.is_subst(item):
-            #    print("not subst" + str(self.number))
+                print("not subst" + str(self.number))
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
@@ -122,13 +122,13 @@ class TestCase ():
         start = time.time()
         if nsubst and _test(self.number):
             self.filesize = os.path.getsize(self.file)
-            print("passed + " + str(nsubst))
+            #print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
             g_smtformula[0] = copy.deepcopy(self.formula)
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)
-            print("not passed + " + str(nsubst)) 
+            #print("not passed + " + str(nsubst)) 
             #self.formula = None
             return 0
 

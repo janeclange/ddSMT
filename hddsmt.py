@@ -87,6 +87,52 @@ class DDSMTCmd ():
         self.rcode = self.process.returncode
         return (self.out, self.err)
 
+class TestCase ():
+    def __init__(self, number, termset, subst_fun):
+        self.number = number
+        self.termset = termset
+        self.formula = None
+        self.function = subst_fun
+        self.filesize = 0
+        self.file = g_tmpfile + str(self.number) + ".smt2"
+
+    def setup (self): 
+        #self.formula = g_smtformula[0]
+        self.formula = copy.deepcopy(g_smtformula[0])
+        #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
+        #self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
+        #self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
+        nsubst = 0
+        for item in self.termset: 
+            if self.formula.is_subst(item):
+                print("is subst" + str(self.number))
+            if not self.formula.is_subst(item):
+                print("not subst" + str(self.number))
+                self.formula.subst(item, self.function(item))    
+                nsubst += 1
+        if nsubst == 0:
+            return 0
+        _dump (self.file, self.formula)
+        return nsubst
+
+    def test (self):
+        nsubst = self.setup ()
+        start = time.time()
+        if nsubst and _test(self.number):
+            self.filesize = os.path.getsize(self.file)
+            #print("passed + " + str(nsubst))
+            g_current_runtime = time.time() - start
+            g_smtformula[0] = copy.deepcopy(self.formula)
+            return nsubst 
+        else:
+            self.filesize = os.path.getsize(g_args.infile)
+            #print("not passed + " + str(nsubst)) 
+            #self.formula = None
+            return 0
+
+    def dump (self):
+        _dump (g_args.outfile, self.formula)
+
 def _cleanup ():
     if os.path.exists(g_tmpfile):
         os.remove(g_tmpfile)
@@ -333,8 +379,6 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                     item.subst (subst_fun(item))
                     subset.append(item)
                     nsubst += 1
-                else: 
-                    s.append(item)
             if nsubst == 0:
                 continue
                 
