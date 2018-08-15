@@ -27,6 +27,7 @@ import resource
 import sys
 import shutil
 import time
+import copy
 import multiprocessing as mp
 
 from argparse import ArgumentParser, REMAINDER
@@ -47,7 +48,7 @@ g_ntests = 0
 g_testtime = 0
 g_args = None
 g_smtformula = None
-g_tmpfile = "/tmp/tmp-" + str(os.getpid()) + ".smt2"
+g_tmpfile = "/tmp/tmp-" + str(os.getpid()) + "-"
 g_tmpbin = "/tmp/ddsmt-bin-" + str(os.getpid())
 
 
@@ -98,16 +99,17 @@ class TestCase ():
 
     def setup (self): 
         #self.formula = g_smtformula[0]
-        self.formula = copy.deepcopy(g_smtformula[0])
+        self.formula = copy.deepcopy(g_smtformula)
         #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
         #self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
         #self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
         nsubst = 0
         for item in self.termset: 
             if self.formula.is_subst(item):
-                print("is subst" + str(self.number))
-            if not self.formula.is_subst(item):
-                print("not subst" + str(self.number))
+                print("is subst")
+            else:
+               # self.formula.is_subst(item):
+                print("not subst")
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
@@ -122,7 +124,7 @@ class TestCase ():
             self.filesize = os.path.getsize(self.file)
             #print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
-            g_smtformula[0] = copy.deepcopy(self.formula)
+            g_smtformula = copy.deepcopy(self.formula)
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)
@@ -134,8 +136,9 @@ class TestCase ():
         _dump (g_args.outfile, self.formula)
 
 def _cleanup ():
-    if os.path.exists(g_tmpfile):
-        os.remove(g_tmpfile)
+    for i in range (mp.cpu_count()):
+        if os.path.exists(g_tmpfile + str(i) + ".smt2"):
+            os.remove(g_tmpfile + str(i) + ".smt2")
     if os.path.exists(g_tmpbin):
         os.remove(g_tmpbin)
 
@@ -145,43 +148,45 @@ def _log (verbosity, msg = "", update = False):
     if g_args.verbosity >= verbosity:
         sys.stdout.write(" " * 80 + "\r")
         if update:
-            sys.stdout.write("[hddsmt] {}\r".format(msg))
+            sys.stdout.write("[ddsmt] {}\r".format(msg))
             sys.stdout.flush()
         else:
-            sys.stdout.write("[hddsmt] {}\n".format(msg))
+            sys.stdout.write("[ddsmt] {}\n".format(msg))
 
 
-def _dump (filename = None, root = None):
+def _dump (filename = None, formula = None, root = None):
     global g_smtformula
     assert (g_smtformula)
+    if not formula:
+        formula = g_smtformula
     try:
-        g_smtformula.dump(filename, root)
+        formula.dump(filename, root)
     except IOError as e:
         raise DDSMTException (str(e))
 
 
-def _run (is_golden = False):
+def _run (index, is_golden = False):
     global g_args, g_golden_runtime, g_current_runtime
     try:
         if not g_args.timeout:
-            cmd = DDSMTCmd (g_args.cmd, g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_golden_runtime, _log)
         elif g_args.timeout_relative:
-            cmd = DDSMTCmd (g_args.cmd, g_args.timeout + g_golden_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout + g_golden_runtime, _log)
         elif g_args.timeout_dynamic:
-            cmd = DDSMTCmd (g_args.cmd, g_args.timeout + g_current_runtime, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout + g_current_runtime, _log)
         else:
-            cmd = DDSMTCmd (g_args.cmd, g_args.timeout, _log)
+            cmd = DDSMTCmd(g_args.cmd[index], g_args.timeout, _log)
         (out, err) = cmd.run_cmd(is_golden)
         return (cmd.rcode, out, err)
     except OSError as e:
-        raise DDSMTException ("{}: {}".format(str(e), g_cmd[0]))
+        raise DDSMTException("{}: {}".format(str(e), g_args.cmd[index][0]))
 
 
-def _test ():
+def _test (index):
     global g_args, g_ntests, g_testtime
     g_ntests += 1
     start = time.time()
-    (exitcode, out, err) = _run()
+    (exitcode, out, err) = _run(index)
     g_testtime += time.time() - start
     return exitcode == g_golden_exit and \
         (g_args.cmpoutput in err.decode() or g_args.cmpoutput in out.decode())
@@ -315,23 +320,6 @@ def _filter_terms (filter_fun, bfs, roots):
             to_visit.extend(cur.children)
     return nodes
 
-def test_branch (subst_fun, substlist, termlist):
-    #cpy_substs = substlist.substs.copy()
-    #cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
-    cpy_formula = g_smtformula.copy()
-    nsubst = 0
-    for item in termlist: 
-        if not item.is_subst():
-            cpy_formula.subst (item, subst_fun(item))
-            nsubst += 1
-
-    start = time.time()
-    if _test():
-        g_current_runtime = time.time() - start
-        return len(termlist)
-    else: 
-        return 0
-
 def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False):
     """_substitute(subst_fun, substlist, superset, randomized, with_vars)
 
@@ -355,7 +343,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (g_smtformula)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
-    min_gran = 0.1 * sqrt(len(superset))
+    min_gran = sqrt(len(superset))
     #min_gran = 0
     nsubst_total = 0
     s = deque(superset) 
@@ -375,16 +363,17 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 if len(s) == 0:
                     break
                 item = s.popleft()
-                if not item.is_subst():
-                    item.subst (subst_fun(item))
-                    subset.append(item)
-                    nsubst += 1
+                subset.append(item)
+                nsubst += 1
             if nsubst == 0:
                 continue
                 
-            _dump (g_tmpfile)
+            case1 = TestCase(0, subset, subst_fun)
+            case1.setup()
+
+            _dump (g_tmpfile + "0.smt2")
             start = time.time()
-            if _test():
+            if _test(0):
                 g_current_runtime = time.time() - start
                 #_dump (g_args.outfile)
                 nsubst_total += nsubst
@@ -898,13 +887,20 @@ if __name__ == "__main__":
         #sys.exit(0)
         #######
 
-        shutil.copyfile(g_args.infile, g_tmpfile)
         shutil.copy(g_args.cmd[0], g_tmpbin)  # make copy of binary
         g_args.cmd[0] = g_tmpbin              # use copy for _run
-        g_args.cmd.append(g_tmpfile)
+        g_args.cmd = [g_args.cmd]
+
+        for i in range (mp.cpu_count()-1): 
+            g_args.cmd.append(copy.copy(g_args.cmd[0]))
+        for i in range (mp.cpu_count()): 
+            g_args.cmd[i].append(g_tmpfile + str(i) + ".smt2")
+            shutil.copyfile(g_args.infile, g_tmpfile + str(i) + ".smt2")
+        print(g_args.cmd)
+
         _log (1)
         _log (1, "starting initial run... ")
-        (g_golden_exit, out, g_golden_err) = _run(True)
+        (g_golden_exit, out, g_golden_err) = _run(0, True)
         if g_args.cmpoutput == None:
             g_args.cmpoutput = g_golden_err.decode()
         _log (1, "golden exit: {}".format(g_golden_exit))

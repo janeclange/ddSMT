@@ -33,7 +33,8 @@ import multiprocessing as mp
 from argparse import ArgumentParser, REMAINDER
 from subprocess import Popen, PIPE, TimeoutExpired
 from parser.ddsmtparser import DDSMTParser, DDSMTParseException
-
+from math import sqrt
+from collections import deque
 
 __version__ = "1.0"
 __author__  = "Aina Niemetz <aina.niemetz@gmail.com>"
@@ -46,7 +47,7 @@ g_current_runtime = 0
 g_ntests = 0
 g_testtime = 0
 g_args = None
-g_smtformula = []
+g_smtformula = None 
 g_tmpfile = "/tmp/tmp-" + str(os.getpid()) + "-"
 g_tmpbin = "/tmp/ddsmt-bin-" + str(os.getpid())
 
@@ -99,17 +100,17 @@ class TestCase ():
         self.file = g_tmpfile + str(self.number) + ".smt2"
 
     def setup (self): 
-        #self.formula = g_smtformula[0]
-        self.formula = copy.deepcopy(g_smtformula[0])
+        #self.formula = g_smtformula
+        self.formula = copy.deepcopy(g_smtformula)
         #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
-        #self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
-        #self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
+        #self.formula.subst_cmds.substs = g_smtformula.subst_cmds.substs.copy()
+        #self.formula.subst_scopes.substs = g_smtformula.subst_scopes.substs.copy()
         nsubst = 0
         for item in self.termset: 
-            if self.formula.is_subst(item):
-                print("is subst" + str(self.number))
+           # if self.formula.is_subst(item):
+            #    print("is subst" + str(self.number))
             if not self.formula.is_subst(item):
-                print("not subst" + str(self.number))
+            #    print("not subst" + str(self.number))
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
@@ -118,17 +119,19 @@ class TestCase ():
         return nsubst
 
     def test (self):
+        global g_smtformula
+
         nsubst = self.setup ()
         start = time.time()
         if nsubst and _test(self.number):
             self.filesize = os.path.getsize(self.file)
-            #print("passed + " + str(nsubst))
+            print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
-            g_smtformula[0] = copy.deepcopy(self.formula)
+            g_smtformula = self.formula
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)
-            #print("not passed + " + str(nsubst)) 
+            print("not passed + " + str(nsubst)) 
             #self.formula = None
             return 0
 
@@ -157,11 +160,13 @@ def _log (verbosity, msg = "", update = False):
 
 def _dump (filename = None, formula = None, root = None):
     global g_smtformula
-    assert (g_smtformula[0])
+    assert (g_smtformula)
     if not formula:
-        formula = g_smtformula[0]
+        formula = g_smtformula
     try:
         formula.dump(filename, root)
+        filesize = os.path.getsize(filename)
+        print(str(filesize))
     except IOError as e:
         raise DDSMTException (str(e))
 
@@ -212,9 +217,9 @@ def _filter_scopes (filter_fun, bfs, root = None):
        :return:     List of scope nodes that fit the filtering condition.
     """
     global g_smtformula
-    assert (g_smtformula[0])
+    assert (g_smtformula)
     scopes = []
-    to_visit = [root if root else g_smtformula[0].scopes]
+    to_visit = [root if root else g_smtformula.scopes]
     while to_visit:
         if bfs:
             cur = to_visit.pop(0)
@@ -242,11 +247,11 @@ def _filter_cmds (filter_fun, bfs):
        :return:     List of command nodes that fit the filtering condition.
     """
     global g_smtformula
-    assert (g_smtformula[0])
+    assert (g_smtformula)
     cmds = []
     scopes = _filter_scopes (lambda x: x.is_regular(), bfs)
     to_visit = [c for cmd_list in [s.cmds for s in scopes] for c in cmd_list]
-    to_visit.extend(g_smtformula[0].scopes.declfun_cmds.values())
+    to_visit.extend(g_smtformula.scopes.declfun_cmds.values())
     while to_visit:
         cur = to_visit.pop()
         if cur.is_subst():
@@ -290,9 +295,8 @@ def _filter_terms (filter_fun, bfs, roots):
             to_visit.extend(cur.children)
     return nodes
 
-def _substitute (subst_fun, substlist, superset, randomized,  
-                 with_vars = False):
-    """_substitute (subst_fun, substlist, superset, randomized, with_vars)
+def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False):
+    """_substitute(subst_fun, substlist, superset, randomized, with_vars)
 
        Attempt to substitute nodes in contiguous subsets as defined by given 
        substitution function subst_fun. Remove substituted nodes from superset 
@@ -306,106 +310,60 @@ def _substitute (subst_fun, substlist, superset, randomized,
                     nodes in the reduced formula.
        :superset:   List of nodes to attempt to substitute.
        :randomized: Bool indicating whether to randomize subset selection.
-       :with_vars:  Bool indicating whether the substitution creates new 
-                    variables. 
+       :with_vars:  Bool indicating whether the substitution creates new variables. 
        :return:     Total number of nodes substituted.
     """
     global g_smtformula, g_current_runtime
 
-    assert (g_smtformula[0])
-    assert (substlist in (g_smtformula[0].subst_scopes, g_smtformula[0].subst_cmds,
-                          g_smtformula[0].subst_nodes))
+    assert (g_smtformula)
+    assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
+                          g_smtformula.subst_nodes))
+    min_gran = sqrt(len(superset))
+    #min_gran = 0
     nsubst_total = 0
-    gran = len(superset)
-    min_gran = 0
+    s = deque(superset) 
+    gran = (len(s) + 1) // 2
+    
     while gran > min_gran:
-        start_time = time.time()
-        if randomized:
-            subsets = [random.sample(superset, gran) for s in range(
-                       0, len(superset), gran)]
-        else:
-            subsets = [superset[s:s+gran] for s in range (
-                       0, len(superset), gran)]
-        tests_performed = 0
-        #print("subsets: " + str(len(subsets)))
-        for index in range (0, len(subsets), 1):
-            if g_args.roundtime:
-                if time.time() - start_time > g_args.roundtime:
-                    _log (2, "[!!] test round timeout: reducing granularity")
-                    break
-            tests_performed += 1
+        for i in range ((len(s) + gran - 1) // gran):
+            if randomized:
+                random.shuffle(s)
+            nsubst = 0
             cpy_substs = substlist.substs.copy()
-            cpy_declfun_cmds = g_smtformula[0].scopes.declfun_cmds.copy()
+            cpy_declfun_cmds = g_smtformula.scopes.declfun_cmds.copy()
+            subset = []
+            if len(s) == 0:
+                return nsubst_total
+            for j in range (gran):
+                if len(s) == 0:
+                    break
+                item = s.popleft()
+                subset.append(item)
+                nsubst += 1
+            if nsubst == 0:
+                continue
+                
+            case1 = TestCase(0, subset, subst_fun)
+            nsubst = case1.test()
 
-            case1 = TestCase(0, subsets[index], subst_fun) 
-            if len(subsets) > index + 1: 
-                case2 = TestCase(1, subsets[index + 1], subst_fun)
+            if nsubst > 0:
+                print("passed")
+                #case1.dump()
+                _dump (g_args.outfile, case1.formula)
+                nsubst_total += nsubst
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
+            	     "".format(gran, i, (len(superset)+gran-1)//gran, nsubst), True)
             else:
-                case2 = TestCase(1, subsets[index], subst_fun)
-            #if len(subsets) > index + 2: 
-            #    case3 = TestCase(2, subsets[index + 2], subst_fun)
-            #else:
-            #    case3 = TestCase(2, subsets[index], subst_fun)
-            nsubst1 = case1.test()
-            #nsubst2 = case2.setup()
-            #nsubst3 = case3.test()
-
-            if nsubst1 == 0:
-                _log (2, "    granularity: {}, subset {} of {}:, "\
-                         "substituted: 0".format(gran, tests_performed, 
-                      len(subsets)), True)
+                _log (2, "    granularity: {}, subset {} of {}:, substituted: 0" \
+            	     "".format(gran, i, (len(superset)+gran-1)//gran), True)
                 substlist.substs = cpy_substs
                 if with_vars:
-                    for name in g_smtformula[0].scopes.declfun_cmds:
-                        assert (g_smtformula[0].find_fun(
-                            name, scope = g_smtformula[0].scopes))
+                    for name in g_smtformula.scopes.declfun_cmds:
+                        assert (g_smtformula.find_fun(name, scope = g_smtformula.scopes))
                         if name not in cpy_declfun_cmds:
-                            g_smtformula[0].delete_fun(name)
-                g_smtformula[0].scopes.declfun_cmds = cpy_declfun_cmds
-
-           # elif max (nsubst1, nsubst2) == nsubst2: 
-           #     case2.dump()
-           #     nsubst_total += nsubst2
-           #     _log (2, "    granularity: {}, subset {} of {}:, " \
-           #              "substituted: {}".format(gran, tests_performed, 
-           #           len(subsets), nsubst2), True)
-           #     superset = list(set(superset) - set(case2.termset))
-           #     g_smtformula[0] = case2.formula
-            else: 
-                case1.dump()
-                nsubst_total += nsubst1
-                _log (2, "    granularity: {}, subset {} of {}:, " \
-                         "substituted: {}".format(gran, tests_performed, 
-                      len(subsets), nsubst1), True)
-                superset = list(set(superset) - set(case1.termset))
-                g_smtformula[0] = copy.copy(case1.formula)
-                
-
-            #elif max (nsubst1, nsubst2, nsubst3) == nsubst1: 
-            #    case1.dump()
-            #    nsubst_total += nsubst1
-            #    _log (2, "    granularity: {}, subset {} of {}:, " \
-            #             "substituted: {}".format(gran, tests_performed, 
-            #          len(subsets), nsubst1), True)
-            #    superset = list(set(superset) - set(case1.termset))
-            #    g_smtformula[0] = case1.formula
-            #elif max (nsubst1, nsubst2, nsubst3) == nsubst2: 
-            #    case2.dump()
-            #    nsubst_total += nsubst2
-            #    _log (2, "    granularity: {}, subset {} of {}:, " \
-            #             "substituted: {}".format(gran, tests_performed, 
-            #          len(subsets), nsubst2), True)
-            #    superset = list(set(superset) - set(case2.termset))
-            #    g_smtformula[0] = case2.formula
-            #elif max (nsubst1, nsubst2, nsubst3) == nsubst3: 
-            #    case3.dump()
-            #    nsubst_total += nsubst3
-            #    _log (2, "    granularity: {}, subset {} of {}:, " \
-            #             "substituted: {}".format(gran, tests_performed, 
-            #          len(subsets), nsubst3), True)
-            #    superset = list(set(superset) - set(case3.termset))
-            #    g_smtformula[0] = case3.formula
-
+                            g_smtformula.delete_fun(name)
+                g_smtformula.scopes.declfun_cmds = cpy_declfun_cmds
+                s.extend(subset)
         gran = gran // 2
     return nsubst_total
 
@@ -422,7 +380,7 @@ def _substitute_scopes (bfs, randomized):
        :return:     Total number of nodes substituted. 
     """
     global g_smtformula
-    assert (g_smtformula[0])
+    assert (g_smtformula)
     _log (2)
     _log (2, "substitute SCOPES:")
     ntests_prev = g_ntests
@@ -434,7 +392,7 @@ def _substitute_scopes (bfs, randomized):
         if not scopes:
             break
         nsubst_total += _substitute (
-                lambda x: None, g_smtformula[0].subst_scopes, scopes, randomized)
+                lambda x: None, g_smtformula.subst_scopes, scopes, randomized)
         level += 1
     _log (2, "  >> {} scope(s) substituted in total".format(nsubst_total))
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
@@ -453,13 +411,13 @@ def _substitute_cmds (bfs, randomized, filter_fun = None):
        :return:     Total number of nodes substituted. 
     """
     global g_smtformula
-    assert (g_smtformula[0])
+    assert (g_smtformula)
     _log (2)
     _log (2, "substitute COMMANDS:")
     ntests_prev = g_ntests
     filter_fun = filter_fun if filter_fun else \
             lambda x: not x.is_setlogic() and not x.is_exit()
-    nsubst_total = _substitute (lambda x: None, g_smtformula[0].subst_cmds,
+    nsubst_total = _substitute (lambda x: None, g_smtformula.subst_cmds,
             _filter_cmds(filter_fun, bfs), randomized)
     _log (2, "  >> {} command(s) substituted in total".format(nsubst_total))
     _log (3, "  >> {} test(s)".format(g_ntests - ntests_prev))
@@ -494,7 +452,7 @@ def _substitute_terms (subst_fun, filter_fun, cmds, bfs, randomized, msg = None,
                 [c.children if c.is_getvalue() else [c.children[-1]] \
                         for c in cmds] for t in term_list])
 
-    nsubst_total = _substitute (subst_fun, g_smtformula[0].subst_nodes, terms, \
+    nsubst_total = _substitute (subst_fun, g_smtformula.subst_nodes, terms, \
                     randomized, with_vars)
 
     _log (2, "    >> {} term(s) substituted in total".format(nsubst_total))
@@ -514,7 +472,7 @@ def ddsmt_main ():
 
     succeeded = "none"
 
-    sf = g_smtformula[0]
+    sf = g_smtformula
 
     while nsubst_round:
         nsubst_round = 0
@@ -891,7 +849,7 @@ if __name__ == "__main__":
         ifilesize = os.path.getsize(g_args.infile)
 
         parser = DDSMTParser()
-        g_smtformula.append(parser.parse(g_args.infile))
+        g_smtformula = parser.parse(g_args.infile)
 
         #### debug
         #to_visit = [g_smtformula.scopes]
