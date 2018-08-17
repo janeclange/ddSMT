@@ -127,7 +127,7 @@ class TestCase ():
             self.filesize = os.path.getsize(self.file)
             print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
-            g_smtformula = self.formula
+            g_smtformula = copy.deepcopy(self.formula)
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)

@@ -98,18 +98,14 @@ class TestCase ():
         self.file = g_tmpfile + str(self.number) + ".smt2"
 
     def setup (self): 
-        #self.formula = g_smtformula[0]
-        self.formula = copy.deepcopy(g_smtformula)
+        self.formula = g_smtformula
+        #self.formula = copy.deepcopy(g_smtformula)
         #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
         #self.formula.subst_cmds.substs = g_smtformula[0].subst_cmds.substs.copy()
         #self.formula.subst_scopes.substs = g_smtformula[0].subst_scopes.substs.copy()
         nsubst = 0
         for item in self.termset: 
-            if self.formula.is_subst(item):
-                print("is subst")
-            else:
-               # self.formula.is_subst(item):
-                print("not subst")
+            if not self.formula.is_subst(item):
                 self.formula.subst(item, self.function(item))    
                 nsubst += 1
         if nsubst == 0:
@@ -135,6 +131,26 @@ class TestCase ():
     def dump (self):
         _dump (g_args.outfile, self.formula)
 
+
+def unittest(): 
+    global g_smtformula
+    copy_formula = copy.deepcopy(g_smtformula)
+    _dump("./edit-version2.min.smt2", copy_formula)
+
+    subset = _filter_cmds (lambda x: True, g_args.bfs)
+    print(str(len(subset)))
+    case1 = TestCase(0, subset, lambda x: None)
+    #case1 = TestCase(0, [], lambda x: None)
+    case1.setup() 
+    if copy_formula == case1.formula: 
+        print("yes")
+    else: 
+        print("no")
+
+    _dump("./edit-version.min.smt2", copy_formula)
+
+
+
 def _cleanup ():
     for i in range (mp.cpu_count()):
         if os.path.exists(g_tmpfile + str(i) + ".smt2"):
@@ -157,8 +173,8 @@ def _log (verbosity, msg = "", update = False):
 def _dump (filename = None, formula = None, root = None):
     global g_smtformula
     assert (g_smtformula)
-    if not formula:
-        formula = g_smtformula
+    #if not formula:
+    #    formula = g_smtformula
     try:
         formula.dump(filename, root)
     except IOError as e:
@@ -344,7 +360,7 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
     assert (substlist in (g_smtformula.subst_scopes, g_smtformula.subst_cmds,
                           g_smtformula.subst_nodes))
     min_gran = sqrt(len(superset))
-    #min_gran = 0
+    min_gran = 0
     nsubst_total = 0
     s = deque(superset) 
     gran = (len(s) + 1) // 2
@@ -370,12 +386,12 @@ def _substitute (subst_fun, substlist, superset, randomized,  with_vars = False)
                 
             case1 = TestCase(0, subset, subst_fun)
             case1.setup()
-
             _dump (g_tmpfile + "0.smt2")
-            start = time.time()
+            case1.dump()
+            #g_smtformula = case1.formula
             if _test(0):
-                g_current_runtime = time.time() - start
-                #_dump (g_args.outfile)
+                g_smtformula = case1.formula
+                _dump (g_args.outfile)
                 nsubst_total += nsubst
                 _log (2, "    granularity: {}, subset {} of {}:, substituted: {}" \
             	     "".format(gran, i, (len(superset)+gran-1)//gran, nsubst), True)
@@ -908,7 +924,8 @@ if __name__ == "__main__":
             _log (1, "golden err: {}".format(g_args.cmpoutput))
         _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
 
-        coarse_hdd ()
+        unittest()
+        #coarse_hdd ()
         ofilesize = os.path.getsize(g_args.outfile)
 
         _log (1)
