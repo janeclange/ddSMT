@@ -273,9 +273,11 @@ class SMTNode:
         return " " + " ".join([str(c) for c in self.children]) \
                             if self.children else ""
 
-    def dump (self, outfile, lead = " "):
-        if self.is_subst():
-            self.get_subst().dump(outfile, lead)
+    def dump (self, outfile, lead = " ", substmap = None):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula.subst_nodes
+        if self.is_subst(substmap):
+            self.get_subst(substmap).dump(outfile, lead, substmap)
         else:
             outfile.write(lead)
             outfile.write(str(self))
@@ -325,15 +327,21 @@ class SMTNode:
     def is_write (self):
         return False
 
-    def subst (self, substitution):
-        SMTNode.g_smtformula.subst(self, substitution)
+    def subst (self, substitution, substmap = None):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula
+        substmap.subst(self, substitution)
 
-    def get_subst (self):
-        return self if not self.is_subst() else \
-                SMTNode.g_smtformula.get_subst(self)
+    def get_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula
+        return self if not self.is_subst(substmap) else \
+                substmap.get_subst(self)
 
-    def is_subst (self):
-        return SMTNode.g_smtformula and SMTNode.g_smtformula.is_subst(self)
+    def is_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula
+        return substmap and substmap.is_subst(self)
 
 
 class SMTSortNode (SMTNode):
@@ -559,7 +567,9 @@ class SMTFunAppNode (SMTNode):
         assert (len(strings) == 1)
         return strings.pop()
 
-    def dump (self, outfile, lead = " "):
+    def dump (self, outfile, lead = " ", substmap = None):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula.subst_nodes
         # we have to prevent recursive calls here, else deep nesting levels
         # blow up the recursion depth limit
         to_visit = [self]
@@ -569,7 +579,7 @@ class SMTFunAppNode (SMTNode):
             if not cur:
                 continue
             if type(cur) != SMTFunAppNode:
-                cur.dump(outfile)
+                cur.dump(outfile, " ", substmap)
             else:
                 if cur.id not in visited:
                     to_visit.append(cur)
@@ -619,15 +629,17 @@ class SMTVarBindNode (SMTNode):
                 "({} {!s})".format(self.var.name, self.children[0])
 
 
-    def dump (self, outfile, lead = " " ):
-        if self.is_subst():
-            subst = self.get_subst()
+    def dump (self, outfile, lead = " ", substmap = None ):
+        if not substmap: 
+            substmap = SMTNode.g_smtformula.subst_nodes
+        if self.is_subst(substmap):
+            subst = self.get_subst(substmap)
             if subst:
-                subst.dump(outfile, lead)
+                subst.dump(outfile, lead, substmap)
         else:
             outfile.write(lead)
             outfile.write("({}".format(self.var.name))
-            self.children[0].dump(outfile)
+            self.children[0].dump(outfile, " ", substmap)
             outfile.write(")")
 
     def is_varb (self):
@@ -688,9 +700,11 @@ class SMTForallExistsNode (SMTNode):
         assert (len(strings) == 1)
         return strings.pop()
 
-    def dump (self, outfile, lead = " "):
+    def dump (self, outfile, lead = " ", substmap = None):
         # we have to prevent recursive calls here, else deep nesting levels
         # blow up the recursion depth limit
+        if not substmap: 
+            substmap = SMTNode.g_smtformula.subst_nodes
         to_visit = [self]
         visited = {}
         while to_visit:
@@ -698,7 +712,7 @@ class SMTForallExistsNode (SMTNode):
             if not cur:
                 continue
             if type(cur) != SMTForallExistsNode:
-                cur.dump(outfile)
+                cur.dump(outfile, " ", substmap)
             else:
                 if cur.id not in visited:
                     to_visit.append(cur)
@@ -988,17 +1002,22 @@ class SMTCmdNode:
     def is_setlogic (self):
         return self.kind == KIND_SETLOGIC
 
-    def subst (self, substitution):
-        SMTCmdNode.g_smtformula.subst(self, substitution)
+    def subst (self, substitution, substmap = None):
+        if not substmap: 
+            substmap = SMTCmdNode.g_smtformula
+        substmap.subst(self, substitution)
 
-    def get_subst (self):
-        return self if not self.is_subst() else \
-                SMTCmdNode.g_smtformula.get_subst(self)
+    def get_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTCmdNode.g_smtformula
+        return self if not self.is_subst(substmap) else \
+                substmap.get_subst(self)
 
-    def is_subst (self):
-        return SMTCmdNode.g_smtformula and \
-                SMTCmdNode.g_smtformula.is_subst(self)
-
+    def is_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTCmdNode.g_smtformula
+        return substmap and substmap.is_subst(self)
+  
 
 class SMTPushCmdNode (SMTCmdNode):
 
@@ -1100,16 +1119,21 @@ class SMTScopeNode:
     def is_regular (self):
         return self.kind == KIND_SCOPE
 
-    def subst (self, substitution):
-        SMTScopeNode.g_smtformula.subst(self, substitution)
+    def subst (self, substitution, substmap = None):
+        if not substmap: 
+            substmap = SMTScopeNode.g_smtformula
+        substmap.subst(self, substitution)
 
-    def get_subst (self):
-        return self if not self.is_subst() else \
-                SMTScopeNode.g_smtformula.get_subst(self)
+    def get_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTScopeNode.g_smtformula
+        return self if not self.is_subst(substmap) else \
+                substmap.get_subst(self)
 
-    def is_subst (self):
-        return SMTScopeNode.g_smtformula and \
-                SMTScopeNode.g_smtformula.is_subst(self)
+    def is_subst (self, substmap = None):
+        if not substmap: 
+            substmap = SMTScopeNode.g_smtformula
+        return substmap and substmap.is_subst(self)
 
     def is_substvar (self, node):
         if not node.is_fun():
