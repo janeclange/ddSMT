@@ -91,35 +91,30 @@ class DDSMTCmd ():
 
 
 class TestCase ():
-    def __init__(self, number, termset, subst_fun):
+    subst_fun = lambda x: None
+    def __init__(self, number, termset):
         self.number = number
         self.termset = termset
-        self.formula = None
-        self.function = subst_fun
         self.filesize = 0
         self.file = g_tmpfile + str(self.number) + ".smt2"
+        self.substlist = copy.copy(g_smtformula.substs[os.getpid()])
+
 
     def setup (self): 
-        #self.formula = g_smtformula
-        self.formula = copy.deepcopy(g_smtformula)
-        #self.formula.subst_nodes.substs = g_smtformula[0].subst_nodes.substs.copy()
-        #self.formula.subst_cmds.substs = g_smtformula.subst_cmds.substs.copy()
-        #self.formula.subst_scopes.substs = g_smtformula.subst_scopes.substs.copy()
+        global g_smtformula
+        g_smtformula.substs[os.getpid()] = self.substlist
         nsubst = 0
         for item in self.termset: 
-           # if self.formula.is_subst(item):
-            #    print("is subst" + str(self.number))
-            if not self.formula.is_subst(item):
-            #    print("not subst" + str(self.number))
-                self.formula.subst(item, self.function(item))    
+            if not item.is_subst():
+                item.subst(TestCase.subst_fun(item))
                 nsubst += 1
         if nsubst == 0:
             return 0
-        _dump (self.file, self.formula)
+        _dump (self.file)
+        self.substlist = g_smtformula.substs[os.getpid()]
         return nsubst
 
     def test (self):
-        global g_smtformula
 
         nsubst = self.setup ()
         start = time.time()
@@ -127,16 +122,14 @@ class TestCase ():
             self.filesize = os.path.getsize(self.file)
             print("passed + " + str(nsubst))
             g_current_runtime = time.time() - start
-            g_smtformula = copy.deepcopy(self.formula)
             return nsubst 
         else:
             self.filesize = os.path.getsize(g_args.infile)
             print("not passed + " + str(nsubst)) 
-            #self.formula = None
             return 0
 
     def dump (self):
-        _dump (g_args.outfile, self.formula)
+        _dump (g_args.outfile)
 
 
 def _cleanup ():
@@ -158,15 +151,12 @@ def _log (verbosity, msg = "", update = False):
             sys.stdout.write("[ddsmt] {}\n".format(msg))
 
 
-def _dump (filename = None, formula = None, root = None):
+def _dump (filename = None, root = None):
     global g_smtformula
     assert (g_smtformula)
-    if not formula:
-        formula = g_smtformula
     try:
-        formula.dump(filename, root)
+        g_smtformula.dump(filename, root)
         filesize = os.path.getsize(filename)
-        print(str(filesize))
     except IOError as e:
         raise DDSMTException (str(e))
 
@@ -197,6 +187,22 @@ def _test (index):
     return exitcode == g_golden_exit and \
         (g_args.cmpoutput in err.decode() or g_args.cmpoutput in out.decode())
 
+def test_single_case(case):
+    nsubst = case.setup()
+    case.dump()
+    return nsubst
+
+def unittest():
+    p = mp.Pool(1)
+    TestCase.subst_fun = lambda x: None
+    allcmds = _filter_cmds(lambda x: not x.is_assert(), g_args.bfs)
+    case = TestCase(0, allcmds)
+    cases = [case]
+    nsubst_array = p.apply(test_single_case, cases)
+    print(case.substlist) # substlist goes out of scope and gets reset to None 
+    g_smtformula.substs[os.getpid()] = case.substlist
+    _dump(g_args.outfile) 
+    
 def _filter_scopes (filter_fun, bfs, root = None):
     """_filter_scopes(filter_fun, bfs, root)
    
@@ -896,7 +902,8 @@ if __name__ == "__main__":
             _log (1, "golden err: {}".format(g_args.cmpoutput))
         _log (1, "golden runtime: {0: .2f} seconds".format(g_golden_runtime))
 
-        ddsmt_main ()
+        #ddsmt_main ()
+        unittest()
 
         ofilesize = os.path.getsize(g_args.outfile)
 
